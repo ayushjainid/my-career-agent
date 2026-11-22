@@ -1,0 +1,12 @@
+node_modules/
+.wrangler/
+.dev.vars
+.env
+*.log
+dist/
+__pycache__/
+.pytest_cache/
+.venv/
+jobs/out/
+*.xlsx
+!jobs/tests/fixtures/*.xlsx

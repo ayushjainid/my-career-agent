@@ -1,0 +1,156 @@
+// Hard gates that run before scoring. A FAIL removes a job from the queue (shown in "excluded"
+// with the quoted line, never silently dropped); a FLAG keeps it but tells the user why.
+//
+// The language and eligibility gates follow the design in 04-job-evaluation.md of ai-job-search
+// (MIT, Copyright (c) 2026 Mads Lorentzen), made deterministic. See THIRD_PARTY_NOTICES.md.
+
+export type GateVerdict = "PASS" | "FLAG" | "FAIL";
+
+export interface GateResult {
+  gate: "language" | "eligibility";
+  verdict: GateVerdict;
+  /** One line per finding, quoting the posting. */
+  notes: string[];
+}
+
+// ---------- Language gate ----------
+
+/** Levels on one ordinal scale. Plain-English words map to their usual CEFR band. */
+export const LANGUAGE_LEVELS = { A1: 1, A2: 2, B1: 3, B2: 4, C1: 5, C2: 6, native: 7 } as const;
+export type LanguageLevel = keyof typeof LANGUAGE_LEVELS;
+
+export interface DeclaredLanguage {
+  language: string; // English name, any case: "Spanish"
+  level: LanguageLevel;
+}
+
+const LEVEL_WORDS: Array<[RegExp, number]> = [
+  [/\b(native|mother[- ]tongue|first language)\b/i, 7],
+  [/\bc2\b|\bbilingual\b|\bnear[- ]native\b/i, 6],
+  [/\bc1\b|\bfluen(?:t|cy)\b|\badvanced\b|\bfull professional\b/i, 5],
+  [/\bb2\b|\bbusiness(?:[- ]level| proficiency| fluent)?\b|\bprofessional working\b|\bproficien(?:t|cy)\b|\bstrong\b|\bexcellent\b/i, 4],
+  [/\bb1\b|\bworking knowledge\b|\bintermediate\b|\bgood\b/i, 3],
+  [/\ba2\b|\bconversational\b|\bbasic\b|\belementary\b/i, 2],
+  [/\ba1\b|\bbeginner\b/i, 1],
+];
+
+// Natural languages only. Ambiguous names that are also tech or everyday words are left out.
+const LANGUAGES = [
+  "English", "Spanish", "French", "German", "Italian", "Portuguese", "Dutch", "Polish", "Russian",
+  "Ukrainian", "Czech", "Slovak", "Hungarian", "Romanian", "Bulgarian", "Greek", "Turkish", "Swedish",
+  "Norwegian", "Danish", "Finnish", "Icelandic", "Estonian", "Latvian", "Lithuanian", "Croatian",
+  "Serbian", "Slovenian", "Arabic", "Hebrew", "Persian", "Farsi", "Hindi", "Urdu", "Bengali", "Tamil",
+  "Telugu", "Marathi", "Gujarati", "Punjabi", "Kannada", "Malayalam", "Mandarin", "Cantonese",
+  "Chinese", "Japanese", "Korean", "Vietnamese", "Thai", "Indonesian", "Malay", "Tagalog", "Filipino",
+  "Swahili", "Catalan", "Basque", "Galician", "Irish", "Welsh",
+];
+const ALIASES: Record<string, string> = { farsi: "persian", filipino: "tagalog", mandarin: "chinese" };
+const canonLang = (s: string) => ALIASES[s.toLowerCase()] ?? s.toLowerCase();
+const LANG_ALT = LANGUAGES.join("|");
+
+// A requirement is a job condition: "fluent in X", "X required", "speak X", "X speakers", "X (C1)".
+const REQUIREMENT = new RegExp(
+  String.raw`(?:(?:fluen(?:t|cy)|native|proficien(?:t|cy)|business[- ]level|working knowledge|conversational|command|speak(?:s|ing)?|written and spoken|spoken and written|communicate|advanced|intermediate|bilingual)[^.\n;]{0,25}?\b(${LANG_ALT})\b)` +
+    String.raw`|(?:\b(${LANG_ALT})\b[^.\n;]{0,30}?(?:required|is a must|mandatory|essential|speakers?|speaking|language skills|fluency|proficiency|\((?:[ABC][12])\)|\b[ABC][12]\b))`,
+  "gi",
+);
+const OPTIONAL = /\b(plus|bonus|nice to have|a plus|advantage|advantageous|preferred|desirable|helpful|beneficial)\b/i;
+
+export interface LanguageRequirement {
+  language: string;
+  level: number | null; // null = language named, no level stated
+  optional: boolean;
+  line: string;
+}
+
+export function extractLanguageRequirements(text: string): LanguageRequirement[] {
+  const out = new Map<string, LanguageRequirement>();
+  for (const rawLine of text.split(/\n|(?<=[.;])\s+/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    for (const m of line.matchAll(REQUIREMENT)) {
+      const name = canonLang(m[1] ?? m[2] ?? "");
+      if (!name) continue;
+      const level = LEVEL_WORDS.find(([re]) => re.test(m[0]))?.[1] ?? null;
+      const optional = OPTIONAL.test(line);
+      const prev = out.get(name);
+      // Keep the strictest mandatory reading of a language.
+      if (!prev || (prev.optional && !optional) || (prev.optional === optional && (level ?? 0) > (prev.level ?? 0)))
+        out.set(name, { language: name, level, optional, line: line.slice(0, 200) });
+    }
+  }
+  return [...out.values()];
+}
+
+export function languageGate(postingText: string, declared: DeclaredLanguage[]): GateResult {
+  const mine = new Map(declared.map((d) => [canonLang(d.language), LANGUAGE_LEVELS[d.level]]));
+  const notes: string[] = [];
+  let verdict: GateVerdict = "PASS";
+  for (const req of extractLanguageRequirements(postingText)) {
+    if (req.optional) continue;
+    const have = mine.get(req.language);
+    if (have === undefined) {
+      verdict = "FAIL";
+      notes.push(`Requires ${req.language}, which is not in your languages: "${req.line}"`);
+    } else if (req.level !== null && req.level > have) {
+      if (verdict !== "FAIL") verdict = "FLAG";
+      const yours = Object.entries(LANGUAGE_LEVELS).find(([, v]) => v === have)?.[0];
+      notes.push(`Asks for a higher ${req.language} level than you declared (${yours}): "${req.line}"`);
+    }
+  }
+  return { gate: "language", verdict, notes };
+}
+
+// ---------- Eligibility gate ----------
+
+export type WorkAuthStatus = "citizen" | "permanent_resident" | "work_visa" | "needs_sponsorship";
+
+const CITIZEN_ONLY = /\b(?:must be (?:a |an )?(?:u\.?s\.?|us|united states|uk|british|canadian|eu)\s*citizens?|(?:u\.?s\.?|us|united states|uk|british|canadian)\s*citizenship (?:is )?(?:required|mandatory)|citizens only|requires? (?:u\.?s\.?|us) citizenship)\b/i;
+const PR_OR_CITIZEN = /\b(?:green card|permanent residen(?:t|ce|cy)|(?:u\.?s\.?|us) persons?\b|itar|export[- ]controlled|indefinite leave to remain|settled status)\b/i;
+const CLEARANCE = /\b(?:security clearance|clearance (?:is )?required|active clearance|ts\/sci|top secret|secret clearance|public trust|polygraph|sc clearance|dv clearance|nv1|nv2|baseline clearance)\b/i;
+
+function quoteLine(text: string, re: RegExp): string {
+  const line = text.split(/\n|(?<=[.;])\s+/).find((l) => re.test(l)) ?? "";
+  return line.trim().slice(0, 200);
+}
+
+/**
+ * Citizenship, permanent-residency and clearance language against the user's status in the job's
+ * country. Clearance is FAIL for non-citizens (it requires citizenship almost everywhere) and FLAG
+ * for citizens (they may not hold one). An unknown status yields FLAG, never a silent PASS.
+ */
+export function eligibilityGate(postingText: string, status: WorkAuthStatus | null): GateResult {
+  const notes: string[] = [];
+  let verdict: GateVerdict = "PASS";
+  const bump = (v: GateVerdict) => {
+    if (v === "FAIL" || (v === "FLAG" && verdict === "PASS")) verdict = v;
+  };
+  if (CITIZEN_ONLY.test(postingText)) {
+    const q = quoteLine(postingText, CITIZEN_ONLY);
+    if (status === "citizen") notes.push(`Citizens only (you qualify): "${q}"`);
+    else {
+      bump(status === null ? "FLAG" : "FAIL");
+      notes.push(`Citizens only: "${q}"`);
+    }
+  }
+  if (PR_OR_CITIZEN.test(postingText)) {
+    const q = quoteLine(postingText, PR_OR_CITIZEN);
+    if (status !== "citizen" && status !== "permanent_resident") {
+      bump(status === null ? "FLAG" : "FAIL");
+      notes.push(`Requires citizenship or permanent residency: "${q}"`);
+    }
+  }
+  if (CLEARANCE.test(postingText)) {
+    const q = quoteLine(postingText, CLEARANCE);
+    bump(status === "citizen" ? "FLAG" : status === null ? "FLAG" : "FAIL");
+    notes.push(`Security clearance: "${q}"`);
+  }
+  return { gate: "eligibility", verdict, notes };
+}
+
+/** Combine gates: the worst verdict wins. */
+export function combineGates(results: GateResult[]): GateVerdict {
+  if (results.some((r) => r.verdict === "FAIL")) return "FAIL";
+  if (results.some((r) => r.verdict === "FLAG")) return "FLAG";
+  return "PASS";
+}

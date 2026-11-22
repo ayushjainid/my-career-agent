@@ -1,0 +1,29 @@
+name: Seed companies (POC loop P1)
+
+# Loads jobs/companies.csv (your target companies and their job boards) into the shared catalog.
+# Safe to re-run: companies are upserted by ATS board. Edit the CSV, push, then run this.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [jobs/companies.csv]
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    environment: production
+    defaults:
+      run:
+        working-directory: jobs
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[db]"
+      - run: |
+          if [ ! -f companies.csv ]; then echo "Add jobs/companies.csv (see companies.example.csv)"; exit 1; fi
+          python -m lifevector_jobs.seed_companies companies.csv
+        env:
+          INGEST_DATABASE_URL: ${{ secrets.INGEST_DATABASE_URL }}

@@ -1,0 +1,52 @@
+name: US sponsor data (DOL LCA + PERM)
+
+# OFLC publishes disclosure files quarterly at
+# https://www.dol.gov/agencies/eta/foreign-labor/performance
+# File names change each quarter, so paste the current URLs when running manually,
+# or set repository variables LCA_URL / PERM_URL for the scheduled run.
+
+on:
+  workflow_dispatch:
+    inputs:
+      lca_url:
+        description: "URL of the current LCA disclosure .xlsx"
+        required: false
+      perm_url:
+        description: "URL of the current PERM disclosure .xlsx"
+        required: false
+  schedule:
+    - cron: "23 6 2 * *" # monthly; picks up new quarterly files once the variables are updated
+
+jobs:
+  load:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: jobs
+    env:
+      LCA_URL: ${{ inputs.lca_url || vars.LCA_URL }}
+      PERM_URL: ${{ inputs.perm_url || vars.PERM_URL }}
+      INGEST_DATABASE_URL: ${{ secrets.INGEST_DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[db]"
+      - name: Download files
+        run: |
+          set -euo pipefail
+          mkdir -p data
+          args=()
+          if [ -n "${LCA_URL}" ]; then curl -fL --retry 3 -o data/lca.xlsx "${LCA_URL}"; args+=(--lca data/lca.xlsx); fi
+          if [ -n "${PERM_URL}" ]; then curl -fL --retry 3 -o data/perm.xlsx "${PERM_URL}"; args+=(--perm data/perm.xlsx); fi
+          if [ ${#args[@]} -eq 0 ]; then echo "No URLs configured; nothing to do."; exit 0; fi
+          echo "ARGS=${args[*]}" >> "$GITHUB_ENV"
+      - name: Summarise and load
+        if: env.ARGS != ''
+        run: python -m lifevector_jobs.us_dol ${ARGS} --out out
+      - uses: actions/upload-artifact@v4
+        if: env.ARGS != ''
+        with:
+          name: us-sponsor-summaries
+          path: jobs/out/*.csv

@@ -1,0 +1,88 @@
+name: Deploy POC
+
+# Every push to main: test, migrate the database, deploy the Worker, then smoke-test it.
+# A failed step stops everything after it, so a broken build never reaches the database or users.
+#
+# Repository secrets (Settings > Secrets and variables > Actions):
+#   CLOUDFLARE_API_TOKEN   token with "Edit Cloudflare Workers" permission
+#   CLOUDFLARE_ACCOUNT_ID  your Cloudflare account id
+#   DATABASE_OWNER_URL     Neon owner connection string (migrations only)
+#   DATABASE_URL           Neon string for the lv_api login role
+#   INGEST_DATABASE_URL    Neon string for the lv_loader login role
+#   API_TOKENS             "yourname:<random token>" (POC auth)
+#   LV_TOKEN               the token part of API_TOKENS, for the smoke test
+# Repository variable:
+#   LV_URL                 the Worker URL, e.g. https://life-vector-api.<subdomain>.workers.dev
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+  migrate:
+    needs: test
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - run: scripts/migrate.sh
+        env:
+          DATABASE_OWNER_URL: ${{ secrets.DATABASE_OWNER_URL }}
+
+  deploy:
+    needs: migrate
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/api
+          command: deploy
+          secrets: |
+            DATABASE_URL
+            INGEST_DATABASE_URL
+            API_TOKENS
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          INGEST_DATABASE_URL: ${{ secrets.INGEST_DATABASE_URL }}
+          API_TOKENS: ${{ secrets.API_TOKENS }}
+
+  smoke:
+    needs: deploy
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm run smoke
+        env:
+          LV_URL: ${{ vars.LV_URL }}
+          LV_TOKEN: ${{ secrets.LV_TOKEN }}

@@ -1,0 +1,17 @@
+[project]
+name = "lifevector-jobs"
+version = "0.1.0"
+description = "Life Vector data jobs: government sponsor files and catalog builders"
+requires-python = ">=3.11"
+dependencies = [
+  "pandas>=2.2",
+  "openpyxl>=3.1",
+]
+
+[project.optional-dependencies]
+db = ["psycopg[binary]>=3.2"]
+pdf = ["pypdf>=4"]
+dev = ["pytest>=8", "pypdf>=4", "reportlab>=4"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

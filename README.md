@@ -1,0 +1,134 @@
+# Life Vector
+
+A tool-neutral job-search agent: it finds and ranks roles, checks visa sponsorship history, plans
+when to apply where, and prepares an apply packet that any tool (or the built-in copy-assist panel)
+can use. The user always submits.
+
+Design: see the "Life Vector — Technical Design" doc. This repository is the **Foundations** milestone.
+
+## What works today
+
+| Area | Where | Status |
+| --- | --- | --- |
+| Postgres schema with row-level security (tenant isolation) | `db/migrations/` | Done, tested in an in-process Postgres |
+| Deterministic requirement extraction, resume scoring (F2), sponsorship scoring | `packages/core` | Done, tested |
+| Blacklist with expiry and subsidiaries (F4), ranking (F7), timing planner (F9) | `packages/core` | Done, tested |
+| Pay parsing from posting text (USD, GBP, EUR, CAD; yearly/hourly) | `packages/core/src/pay.ts` | Done, tested |
+| Greenhouse, Lever (US + EU), Ashby feed adapters and board diffing | `apps/api/src/ats` | Done, tested with doc-shaped fixtures |
+| Scheduled ingestion into the shared catalog | `apps/api/src/ingest.ts` | Written; needs a live Neon database to exercise |
+| Inbound email: classify alerts, confirmations, rejections; auto-mark submitted | `apps/api/src/email.ts` | Classifier tested; handler needs Email Routing to exercise |
+| API: manual scoring, queue, apply packets, status changes, company preferences | `apps/api/src/routes.ts` | Written; dev auth only (see below) |
+| US sponsor data from DOL LCA + PERM files | `jobs/lifevector_jobs/us_dol.py` | Done, tested; layout changes fail loudly |
+| Company seeding from CSV | `jobs/lifevector_jobs/seed_companies.py` | Done |
+| Posting integrity check: hidden text removed before scoring, planted instructions flagged | `packages/core/src/postingGuard.ts` | Done, tested; runs in every adapter and in `/score` |
+| ATS text-layer check of a resume PDF (dates, contact details, keywords) | `packages/core/src/atsText.ts`, `jobs/lifevector_jobs/ats_text.py` | Done, tested; wired up with resume rendering |
+| Form-field answers: measured lengths, short variants, figures traced to verified facts | `packages/core/src/formFields.ts` | Done, tested |
+| Language and eligibility gates (citizenship, permanent residency, clearance) | `packages/core/src/gates.ts` | Done, tested; in `/score`, ranking next |
+| Follow-up policy: 10 quiet days, at most two, drafts only, no new claims | `packages/core/src/followups.ts` | Done, tested; cap also enforced in the database |
+
+Several of these are adapted from [ai-job-search](https://github.com/ai-job-search-dev/ai-job-search) (MIT); see `THIRD_PARTY_NOTICES.md`.
+
+## POC progress (see the delivery plan in the technical design doc)
+
+Each loop is done only when its automated check, its real-use check and its exit condition pass.
+
+| Loop | Code | Automated check | Real-use check (yours) |
+| --- | --- | --- | --- |
+| P0 Foundations | Token auth, migrations, CI, `scripts/smoke.mjs` | Passing: RLS, auth tests | Deploy, then `npm run smoke` |
+| P1 Catalog | Adapters, ingestion, sponsor loader, integrity check | Passing: fixtures, diff | 3 days of clean ingestion; 20 jobs hand-checked |
+| P2 Profile and scoring | `/profile`, `/facts`, `/languages`, `/work-auth`, `/targets`, `/companies`, `/score` | Passing: end-to-end on in-process Postgres | Hand-label 10 jobs; ranks agree on 8 or more |
+| P3 Daily queue | `buildDailyQueue` (core), `apps/api/src/queue.ts`, daily cron, `/queue/build`, `/queue/runs/:date` | Passing: unit + end-to-end | Review 3 daily queues: 7 of 10 worth applying |
+| P4 Referrals | Contact scoring in the queue | Partial | Not started: Connections CSV import next |
+| P5 Apply packet and tracker | `/packets/:jobId`, `/applications/:id/status` | Passing: state machine end-to-end | Not started: copy-assist page next |
+
+## Not built yet
+
+- POC: LinkedIn Connections import (P4), copy-assist page and form answers in the packet (P5).
+- Beta: Better Auth and OAuth for MCP (B1), resume rendering (B2), inbound email and follow-ups
+  (B3), MCP connector (B4), timing and pay (B5), billing (B6), UK and Canada packs (B7).
+- UK, Canada and Netherlands country packs; entity resolution beyond exact normalised names.
+- ESCO skills import (a small cross-occupation starter dictionary ships in `packages/core/src/skills.ts`).
+
+## Cost
+
+$0 while building (Workers Free, Neon Free, GitHub Actions in a public repo). About $6/month at launch:
+Workers Paid $5, Neon pay-as-you-go, a domain.
+
+## Setup
+
+Requirements: Node 20+, Python 3.11+, a Cloudflare account, a Neon account (EU region).
+
+```bash
+npm install
+npm test            # core, RLS and API tests
+npm run typecheck
+cd jobs && pip install -e ".[dev,db]" && pytest -q
+```
+
+### 1. Database (Neon)
+
+1. Create a Neon project in an EU region.
+2. Run the migrations in order as the project owner:
+   `for f in db/migrations/*.sql; do psql "$NEON_OWNER_URL" -f "$f"; done`
+3. Create two login roles and grant them the group roles the migration created:
+   ```sql
+   CREATE ROLE lv_api LOGIN PASSWORD '...';     GRANT lv_app TO lv_api;
+   CREATE ROLE lv_loader LOGIN PASSWORD '...';  GRANT lv_ingest TO lv_loader;
+   ```
+   Never connect the API as the owner: row-level security relies on the API using `lv_app`.
+
+### 2. Worker (Cloudflare)
+
+```bash
+cd apps/api
+npx wrangler secret put DATABASE_URL          # connection string for lv_api
+npx wrangler secret put INGEST_DATABASE_URL   # connection string for lv_loader
+npx wrangler secret put API_TOKENS            # POC auth: "yourname:<random token>", see below
+npx wrangler deploy
+```
+
+Make a token with `openssl rand -base64 32` (at least 24 characters). Then check the deploy:
+`LV_URL=https://<your worker> LV_TOKEN=<token> npm run smoke`.
+
+For local development create `apps/api/.dev.vars` with both URLs and `DEV_MODE=true`, then `npm run dev`.
+
+### 3. Seed companies and sponsor data
+
+```bash
+cd jobs
+python -m lifevector_jobs.seed_companies companies.example.csv --database-url "$INGEST_DATABASE_URL"
+python -m lifevector_jobs.us_dol --lca LCA_FY2026_Q3.xlsx --perm PERM_FY2026_Q3.xlsx --database-url "$INGEST_DATABASE_URL"
+```
+
+Or run the **US sponsor data** GitHub Action with the current file URLs from the
+[OFLC performance page](https://www.dol.gov/agencies/eta/foreign-labor/performance).
+
+## Set up your profile and build a queue (POC)
+
+```bash
+H="authorization: Bearer $LV_TOKEN"; U="$LV_URL/api"
+curl -s -X PUT  "$U/profile"      -H "$H" -d '{"homeCountry":"US","dailyTarget":10}'
+curl -s -X POST "$U/facts"        -H "$H" -d '[{"kind":"role","text":"Data engineer at Hooli","skills":["python","sql","aws"],"startDate":"2018-01-01","verified":true}]'
+curl -s -X PUT  "$U/languages"    -H "$H" -d '[{"language":"English","level":"C2"}]'
+curl -s -X PUT  "$U/work-auth/US" -H "$H" -d '{"status":"needs_sponsorship","minLcaFilings":5,"minPermCertified":3}'
+curl -s -X POST "$U/targets"      -H "$H" -d '{"country":"US","title":"Data Engineer","seniority":"senior"}'
+curl -s -X POST "$U/queue/build"  -H "$H"
+curl -s "$U/queue" -H "$H"
+curl -s "$U/queue/runs/$(date -u +%F)" -H "$H"   # every excluded job and why
+```
+
+The daily cron (06:05 UTC) builds the same queue for every user with a target. Manual scoring:
+`curl -s -X POST "$U/score" -H "$H" -d '{"title":"Senior Data Engineer","description":"...","country":"US"}'`.
+
+## Guardrails built into the code
+
+- Tenant data is only reachable inside a transaction that sets `app.user_id`; policies are forced on
+  every tenant table, and CI proves it (`db/test/rls.test.ts`).
+- Scoring only counts **verified** facts; gap suggestions never invent experience.
+- Sensitive form answers come only from the user's answer bank.
+- A missing job board throws instead of closing every job at that company.
+- Applications move through an explicit state machine with an append-only event log.
+- Job postings are untrusted input: hidden text is stripped before anything reads them, and
+  instruction-shaped text is flagged to the user (advisory, never a silent drop).
+- A follow-up draft may only restate what the employer already received; the database refuses a
+  third follow-up.

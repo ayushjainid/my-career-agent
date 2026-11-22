@@ -1,0 +1,30 @@
+name = "life-vector-api"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Static web app (onboarding, queue, copy-assist panel). Requests to static assets are free.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+
+# Daily job-board fetch. Runs in batches so the free plan's limits are respected in development;
+# on Workers Paid, raise INGEST_BOARDS_PER_RUN.
+[triggers]
+crons = ["17 */3 * * *", "5 6 * * *"]  # ingest every 3 hours; daily queue at 06:05 UTC
+
+[vars]
+DEV_MODE = "false"
+INGEST_BOARDS_PER_RUN = "40"
+INBOUND_DOMAIN = "in.lifevector.example"
+
+# Resumes and exports. Create with: wrangler r2 bucket create life-vector-files --jurisdiction eu
+# [[r2_buckets]]
+# binding = "FILES"
+# bucket_name = "life-vector-files"
+# jurisdiction = "eu"
+
+# Secrets (set with `wrangler secret put`):
+#   DATABASE_URL         Neon connection string for the lv_app login role
+#   INGEST_DATABASE_URL  Neon connection string for the lv_ingest login role
