@@ -48,6 +48,7 @@ jobs:
           for n in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID DATABASE_OWNER_URL MCA_TOKEN; do
             if [ -z "${!n}" ]; then echo "::error::Secret $n is not set (see DEPLOY.md)"; missing=1; fi
           done
+          MCA_TOKEN="$(printf %s "$MCA_TOKEN" | tr -d '[:space:]')"
           if [ ${#MCA_TOKEN} -lt 24 ]; then echo "::error::MCA_TOKEN must be at least 24 characters"; missing=1; fi
           exit $missing
 
@@ -65,9 +66,10 @@ jobs:
       - run: node scripts/db-urls.mjs
       - run: scripts/migrate.sh
       - name: App login roles
-        run: >
-          psql "$DATABASE_OWNER_URL" -q -v api_password="$MCA_API_DB_PASSWORD"
-          -v loader_password="$MCA_LOADER_DB_PASSWORD" -f scripts/bootstrap_roles.sql
+        run: |
+          OWNER="$(printf %s "$DATABASE_OWNER_URL" | tr -d '[:space:]')"
+          psql "$OWNER" -q -v api_password="$MCA_API_DB_PASSWORD" \
+            -v loader_password="$MCA_LOADER_DB_PASSWORD" -f scripts/bootstrap_roles.sql
 
   deploy:
     needs: migrate

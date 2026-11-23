@@ -4,6 +4,8 @@
 # The ledger table records what ran, so re-running is safe.
 set -euo pipefail
 : "${DATABASE_OWNER_URL:?set DATABASE_OWNER_URL to the Neon owner connection string}"
+# Pasted secrets often carry a trailing newline; a URL never contains whitespace.
+DATABASE_OWNER_URL="$(printf %s "$DATABASE_OWNER_URL" | tr -d '[:space:]')"
 cd "$(dirname "$0")/../db/migrations"
 
 psql "$DATABASE_OWNER_URL" -v ON_ERROR_STOP=1 -q -c \

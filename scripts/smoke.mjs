@@ -2,8 +2,8 @@
 // Usage: MCA_URL=https://my-career-agent.<you>.workers.dev MCA_TOKEN=... npm run smoke
 // Read-only unless MCA_SMOKE_BUILD=1, which also builds today's queue (safe to repeat).
 
-const base = (process.env.MCA_URL ?? "").replace(/\/$/, "");
-const token = process.env.MCA_TOKEN ?? "";
+const base = (process.env.MCA_URL ?? "").trim().replace(/\/$/, "");
+const token = (process.env.MCA_TOKEN ?? "").trim();
 if (!base || !token) {
   console.error("Set MCA_URL and MCA_TOKEN.");
   process.exit(2);

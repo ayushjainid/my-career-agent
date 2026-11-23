@@ -9,7 +9,8 @@
 import { createHmac } from "node:crypto";
 import { appendFileSync } from "node:fs";
 
-const owner = process.env.DATABASE_OWNER_URL;
+// Pasted secrets often carry a trailing newline; a URL never contains whitespace.
+const owner = (process.env.DATABASE_OWNER_URL ?? "").replace(/\s+/g, "");
 if (!owner) {
   console.error("DATABASE_OWNER_URL is not set");
   process.exit(2);
