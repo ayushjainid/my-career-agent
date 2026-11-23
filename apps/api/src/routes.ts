@@ -15,7 +15,7 @@ import {
   type WorkAuthStatus,
   type Profile,
   type Seniority,
-} from "@life-vector/core";
+} from "@my-career-agent/core";
 import { Hono, type MiddlewareHandler } from "hono";
 import type { AppBindings } from "./env.js";
 import { appDb } from "./lib/db.js";
@@ -64,7 +64,7 @@ export const requireUser: MiddlewareHandler<AppBindings> = async (c, next) => {
   await next();
 };
 
-api.get("/health", (c) => c.json({ ok: true, service: "life-vector-api", version: "0.1.0" }));
+api.get("/health", (c) => c.json({ ok: true, service: "my-career-agent-api", version: "0.1.0" }));
 
 api.use("/*", requireUser);
 api.route("/", profile);
@@ -84,9 +84,9 @@ api.post("/score", async (c) => {
   const country = ((body as { country?: string }).country ?? "").toUpperCase().slice(0, 2);
   const [rows = [], langRows = [], auth = []] = await c.get("db").asUser(c.get("userId"), [
     stmt(`SELECT id, kind, text, skills, start_date::text AS start_date, end_date::text AS end_date, verified
-          FROM lv.fact ORDER BY created_at`),
-    stmt(`SELECT language, level FROM lv.user_language`),
-    stmt(`SELECT status FROM lv.work_auth WHERE country = $1`, country),
+          FROM mca.fact ORDER BY created_at`),
+    stmt(`SELECT language, level FROM mca.user_language`),
+    stmt(`SELECT status FROM mca.work_auth WHERE country = $1`, country),
   ]);
   const langs = langRows.map((l) => ({ language: String(l.language), level: l.level as LanguageLevel }));
   const facts: Fact[] = rows.map((r) => ({
@@ -122,10 +122,10 @@ api.get("/packets/:jobId", async (c) => {
   if (!/^[0-9a-f-]{36}$/i.test(jobId)) return c.json({ error: "bad job id" }, 400);
   const [jobs = [], answers = [], apps = []] = await c.get("db").asUser(c.get("userId"), [
     stmt(`SELECT j.id, j.title, j.apply_url, j.ats_vendor, j.location_text, c.name AS company
-          FROM lv.job j JOIN lv.company c ON c.id = j.company_id WHERE j.id = $1`, jobId),
-    stmt(`SELECT question_key, answer, sensitive FROM lv.answer_bank_entry ORDER BY question_key`),
+          FROM mca.job j JOIN mca.company c ON c.id = j.company_id WHERE j.id = $1`, jobId),
+    stmt(`SELECT question_key, answer, sensitive FROM mca.answer_bank_entry ORDER BY question_key`),
     stmt(`SELECT a.id, a.state, ct.full_name AS referral_name
-          FROM lv.application a LEFT JOIN lv.contact ct ON ct.id = a.referral_contact_id
+          FROM mca.application a LEFT JOIN mca.contact ct ON ct.id = a.referral_contact_id
           WHERE a.job_id = $1`, jobId),
   ]);
   if (!jobs.length) return c.json({ error: "job not found" }, 404);
@@ -147,7 +147,7 @@ api.post("/applications/:id/status", async (c) => {
   const to: AppState = body.state;
   const userId = c.get("userId");
   const db = c.get("db");
-  const [rows = []] = await db.asUser(userId, [stmt(`SELECT state FROM lv.application WHERE id = $1`, id)]);
+  const [rows = []] = await db.asUser(userId, [stmt(`SELECT state FROM mca.application WHERE id = $1`, id)]);
   const from = rows[0]?.state as AppState | undefined;
   if (!from) return c.json({ error: "application not found" }, 404);
   if (from === to) return c.json({ ok: true, state: to, unchanged: true });
@@ -157,10 +157,10 @@ api.post("/applications/:id/status", async (c) => {
   // change makes the UPDATE match nothing, so no event is written and the caller gets 409.
   const [changed = []] = await db.asUser(userId, [
     stmt(`WITH u AS (
-            UPDATE lv.application SET state = $2,
+            UPDATE mca.application SET state = $2,
               submitted_at = CASE WHEN $2::text = 'submitted' THEN now() ELSE submitted_at END
             WHERE id = $1 AND state = $3 RETURNING id)
-          INSERT INTO lv.application_event (user_id, application_id, kind, payload)
+          INSERT INTO mca.application_event (user_id, application_id, kind, payload)
           SELECT $4, u.id, 'state_change', $5::jsonb FROM u RETURNING application_id`,
       id, to, from, userId, JSON.stringify({ from, to, note: body.note ?? null })),
   ]);
@@ -183,7 +183,7 @@ api.put("/companies/:companyId/preference", async (c) => {
 
   const userId = c.get("userId");
   await c.get("db").asUser(userId, [
-    stmt(`INSERT INTO lv.company_preference (user_id, company_id, tier, block_mode, block_reason, block_expires_at, include_subsidiaries)
+    stmt(`INSERT INTO mca.company_preference (user_id, company_id, tier, block_mode, block_reason, block_expires_at, include_subsidiaries)
       VALUES ($1, $2, $3, $4, $5, $6::date, $7)
       ON CONFLICT (user_id, company_id) DO UPDATE SET
         tier = EXCLUDED.tier, block_mode = EXCLUDED.block_mode, block_reason = EXCLUDED.block_reason,

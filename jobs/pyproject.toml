@@ -1,7 +1,7 @@
 [project]
-name = "lifevector-jobs"
+name = "my-career-agent-jobs"
 version = "0.1.0"
-description = "Life Vector data jobs: government sponsor files and catalog builders"
+description = "My Career Agent data jobs: government sponsor files and catalog builders"
 requires-python = ">=3.11"
 dependencies = [
   "pandas>=2.2",

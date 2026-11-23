@@ -19,7 +19,7 @@ function pgliteTenantDb(db: PGlite): TenantDb {
   return {
     asUser: (userId, stmts) =>
       db.transaction(async (tx) => {
-        await tx.query("SET LOCAL ROLE lv_app");
+        await tx.query("SET LOCAL ROLE mca_app");
         await tx.query("SELECT set_config('app.user_id', $1, true)", [userId]);
         const out: Row[][] = [];
         for (const s of stmts) out.push((await tx.query<Row>(s.text, s.params ?? [])).rows);
@@ -30,7 +30,7 @@ function pgliteTenantDb(db: PGlite): TenantDb {
 
 const call = (method: string, path: string, token: string | null, body?: unknown) =>
   app.fetch(
-    new Request(`http://lv.test/api${path}`, {
+    new Request(`http://mca.test/api${path}`, {
       method,
       headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -51,18 +51,18 @@ beforeAll(async () => {
   const companies = ["Acme", "Globex", "Initech", "Umbrella"];
   for (const [i, name] of companies.entries()) {
     const { rows } = await pg.query<{ id: string }>(
-      "INSERT INTO lv.company (name, name_norm, ats_vendor, ats_board) VALUES ($1, upper($1), 'greenhouse', lower($1)) RETURNING id",
+      "INSERT INTO mca.company (name, name_norm, ats_vendor, ats_board) VALUES ($1, upper($1), 'greenhouse', lower($1)) RETURNING id",
       [name],
     );
     const id = rows[0]!.id;
     const text = name === "Initech" ? `${DESC}\nFluent German required.` : name === "Umbrella" ? `${DESC}\nWe are unable to sponsor visas.` : DESC;
     await pg.query(
-      `INSERT INTO lv.job (company_id, ats_vendor, ats_job_id, title, country, description_text, posted_at, status, integrity)
+      `INSERT INTO mca.job (company_id, ats_vendor, ats_job_id, title, country, description_text, posted_at, status, integrity)
        VALUES ($1, 'greenhouse', $2, 'Senior Data Engineer', 'US', $3, now() - interval '2 days', 'open', '{"level":"clean"}')`,
       [id, String(100 + i), text.replace(/<[^>]+>/g, "\n")],
     );
     await pg.query(
-      `INSERT INTO lv.sponsor_record (company_id, country, source, employer_name, employer_norm, filings, certified, period_end)
+      `INSERT INTO mca.sponsor_record (company_id, country, source, employer_name, employer_norm, filings, certified, period_end)
        VALUES ($1, 'US', 'dol_lca', $2, upper($2), 50, 0, '2026-09-30'), ($1, 'US', 'dol_perm', $2, upper($2), 0, 10, '2026-09-30')`,
       [id, name],
     );
@@ -84,7 +84,7 @@ describe("P0 auth", () => {
   it("accepts only a known bearer token; the dev header is ignored outside DEV_MODE", async () => {
     expect((await call("GET", "/profile", null)).status).toBe(401);
     expect((await call("GET", "/profile", "wrong-token-wrong-token-xx")).status).toBe(401);
-    const dev = await app.fetch(new Request("http://lv.test/api/profile", { headers: { "x-dev-user": "alice" } }), env);
+    const dev = await app.fetch(new Request("http://mca.test/api/profile", { headers: { "x-dev-user": "alice" } }), env);
     expect(dev.status).toBe(401);
     expect(userForToken(`Bearer ${TOKEN_A}`, env.API_TOKENS)).toBe("alice");
     expect(userForToken("Bearer short", "x:short")).toBeNull(); // tokens under 24 characters never match
@@ -165,7 +165,7 @@ describe("P3 daily queue", () => {
     expect((await call("POST", `/applications/${item!.id}/status`, TOKEN_A, { state: "submitted", note: "via copy-assist" })).status).toBe(200);
     expect((await call("POST", `/applications/${item!.id}/status`, TOKEN_B, { state: "withdrawn" })).status).toBe(404);
     const events = await pg.query<{ payload: { from: string; to: string } }>(
-      "SELECT payload FROM lv.application_event WHERE application_id = $1 ORDER BY id", [item!.id]);
+      "SELECT payload FROM mca.application_event WHERE application_id = $1 ORDER BY id", [item!.id]);
     expect(events.rows.map((e) => `${e.payload.from}>${e.payload.to}`)).toEqual(["queued>approved", "approved>submitted"]);
     expect((await json(await call("GET", "/queue", TOKEN_A))).items).toEqual([]); // submitted leaves the queue
   });
@@ -178,8 +178,8 @@ describe("P3 daily queue", () => {
 
   it("lists users for the nightly job without exposing their data", async () => {
     const res = await pg.transaction(async (tx) => {
-      await tx.query("SET LOCAL ROLE lv_app");
-      return tx.query<{ user_id: string }>("SELECT lv.users_for_queue() AS user_id");
+      await tx.query("SET LOCAL ROLE mca_app");
+      return tx.query<{ user_id: string }>("SELECT mca.users_for_queue() AS user_id");
     });
     expect(res.rows.map((r) => r.user_id)).toEqual(["alice"]);
   });

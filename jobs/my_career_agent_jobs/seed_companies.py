@@ -5,7 +5,7 @@ Find the board token from a company's careers page, e.g. boards.greenhouse.io/<t
 jobs.lever.co/<token>, jobs.ashbyhq.com/<token>.
 
 Usage:
-  python -m lifevector_jobs.seed_companies companies.csv --database-url "$INGEST_DATABASE_URL"
+  python -m my_career_agent_jobs.seed_companies companies.csv --database-url "$INGEST_DATABASE_URL"
 """
 
 from __future__ import annotations
@@ -50,7 +50,7 @@ def upsert(companies: list[dict[str, object]], database_url: str) -> None:
     with psycopg.connect(database_url) as conn, conn.cursor() as cur:
         for c in companies:
             cur.execute(
-                """INSERT INTO lv.company (name, name_norm, aliases, domain, ats_vendor, ats_board, ats_region)
+                """INSERT INTO mca.company (name, name_norm, aliases, domain, ats_vendor, ats_board, ats_region)
                    VALUES (%(name)s, %(name_norm)s, %(aliases)s, %(domain)s, %(ats_vendor)s, %(ats_board)s, %(ats_region)s)
                    ON CONFLICT (ats_vendor, ats_board) DO UPDATE SET
                      name = EXCLUDED.name, name_norm = EXCLUDED.name_norm, aliases = EXCLUDED.aliases,

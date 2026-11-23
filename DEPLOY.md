@@ -27,15 +27,15 @@ Repository > Settings > Secrets and variables > Actions > New repository secret:
 | `CLOUDFLARE_API_TOKEN` | from step 2 |
 | `CLOUDFLARE_ACCOUNT_ID` | from step 2 |
 | `DATABASE_OWNER_URL` | from step 1 |
-| `LV_TOKEN` | your API key: run `openssl rand -base64 32` and keep a copy |
+| `MCA_TOKEN` | your API key: run `openssl rand -base64 32` and keep a copy |
 
-The app's two database logins (`lv_api`, `lv_loader`) and their connection strings are derived
+The app's two database logins (`mca_api`, `mca_loader`) and their connection strings are derived
 from the owner string at deploy time (`scripts/db-urls.mjs`); there is nothing else to store.
 
 ## 4. Deploy (loop P0)
 
 Actions > **Deploy POC** > Run workflow. The run summary shows the Worker URL. P0 is done when the
-last job, `smoke`, passes. Use the URL and `LV_TOKEN` for the README's profile commands.
+last job, `smoke`, passes. Use the URL and `MCA_TOKEN` for the README's profile commands.
 
 ## 5. Companies and sponsor data (loop P1)
 
@@ -49,4 +49,4 @@ last job, `smoke`, passes. Use the URL and `LV_TOKEN` for the README's profile c
 
 - Database: reset the owner password in Neon, update `DATABASE_OWNER_URL`, re-run **Deploy POC**.
   The app logins get new passwords on the same run.
-- API key: change `LV_TOKEN` and re-run **Deploy POC**.
+- API key: change `MCA_TOKEN` and re-run **Deploy POC**.

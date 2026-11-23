@@ -12,7 +12,7 @@ export const QUEUE_CRON = "5 6 * * *";
 
 async function runAllQueues(env: Env): Promise<void> {
   const sql = appDb(env.DATABASE_URL);
-  const users = (await sql`SELECT lv.users_for_queue() AS user_id`) as Array<{ user_id: string }>;
+  const users = (await sql`SELECT mca.users_for_queue() AS user_id`) as Array<{ user_id: string }>;
   const db = neonTenantDb(sql);
   const today = new Date();
   for (const { user_id } of users) {

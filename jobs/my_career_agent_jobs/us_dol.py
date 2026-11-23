@@ -4,12 +4,12 @@ Source: https://www.dol.gov/agencies/eta/foreign-labor/performance
   * LCA file (H-1B, H-1B1, E-3): one row per Labor Condition Application.
   * PERM file (Form ETA-9089): one row per permanent labor certification case.
 
-Output: one summary row per employer x occupation (SOC) x source, matching the lv.sponsor_record table.
+Output: one summary row per employer x occupation (SOC) x source, matching the mca.sponsor_record table.
 The OFLC record layouts change between fiscal years, so columns are resolved from alias lists and
 the job fails loudly, listing the columns it saw, if a required field is missing.
 
 Usage:
-  python -m lifevector_jobs.us_dol --lca LCA.xlsx --perm PERM.xlsx --out out/ [--database-url URL]
+  python -m my_career_agent_jobs.us_dol --lca LCA.xlsx --perm PERM.xlsx --out out/ [--database-url URL]
 """
 
 from __future__ import annotations
@@ -238,18 +238,18 @@ def load_to_postgres(rows: list[dict[str, object]], database_url: str) -> None:
     with psycopg.connect(database_url) as conn, conn.cursor() as cur:
         for source, source_file in sorted({(r["source"], r["source_file"]) for r in rows}):
             cur.execute(
-                "DELETE FROM lv.sponsor_record WHERE country = 'US' AND source = %s AND source_file = %s",
+                "DELETE FROM mca.sponsor_record WHERE country = 'US' AND source = %s AND source_file = %s",
                 (source, source_file),
             )
         cur.executemany(
-            f"INSERT INTO lv.sponsor_record ({', '.join(FIELDS)}) "
+            f"INSERT INTO mca.sponsor_record ({', '.join(FIELDS)}) "
             f"VALUES ({', '.join(['%s'] * len(FIELDS))})",
             [tuple(r[f] for f in FIELDS) for r in rows],
         )
         # Link to known companies by normalised name; unmatched rows wait for entity resolution.
         cur.execute(
-            """UPDATE lv.sponsor_record s SET company_id = c.id
-               FROM lv.company c
+            """UPDATE mca.sponsor_record s SET company_id = c.id
+               FROM mca.company c
                WHERE s.company_id IS NULL AND s.country = 'US'
                  AND (c.name_norm = s.employer_norm OR s.employer_norm = ANY (c.aliases))"""
         )
@@ -277,7 +277,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.database_url:
         load_to_postgres(rows, args.database_url)
-        print(f"loaded {len(rows)} rows into lv.sponsor_record")
+        print(f"loaded {len(rows)} rows into mca.sponsor_record")
     return 0
 
 

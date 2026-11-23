@@ -4,7 +4,7 @@
 //   Ashby:      https://developers.ashbyhq.com/docs/public-job-posting-api
 // Parsers are tolerant: unknown or missing fields degrade to null rather than throwing.
 
-import { parsePayFromText, type AtsVendor, type NormalizedJob, type PayRange, type RemoteType } from "@life-vector/core";
+import { parsePayFromText, type AtsVendor, type NormalizedJob, type PayRange, type RemoteType } from "@my-career-agent/core";
 import { guardedDescription } from "../lib/html.js";
 
 export class BoardNotFoundError extends Error {}
@@ -31,7 +31,7 @@ export function boardUrl(ref: BoardRef): string {
 
 export async function fetchBoard(ref: BoardRef, fetcher: typeof fetch = fetch): Promise<NormalizedJob[]> {
   const res = await fetcher(boardUrl(ref), {
-    headers: { accept: "application/json", "user-agent": "LifeVectorBot/0.1 (+https://lifevector.example/bot)" },
+    headers: { accept: "application/json", "user-agent": "MyCareerAgentBot/0.1 (+https://github.com/ayushjainid/my-career-agent)" },
   });
   // A 404 means the board was removed or renamed. Throw rather than return [], so ingestion
   // never mass-closes a company's jobs because of a bad board token.

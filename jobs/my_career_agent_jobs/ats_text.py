@@ -1,11 +1,11 @@
 """Extract the text layer of a resume PDF the way an applicant-tracking system reads it.
 
-Output is JSON ({"text", "pages", "extractor"}) for checkTextLayer() in @life-vector/core,
+Output is JSON ({"text", "pages", "extractor"}) for checkTextLayer() in @my-career-agent/core,
 which judges it. Extraction order (pypdf first, pdftotext as fallback, empty output treated as
 failure) follows tools/verify_pdf.py in ai-job-search (MIT, Copyright (c) 2026 Mads Lorentzen).
 See THIRD_PARTY_NOTICES.md.
 
-Usage: python -m lifevector_jobs.ats_text resume.pdf > layer.json
+Usage: python -m my_career_agent_jobs.ats_text resume.pdf > layer.json
 """
 
 from __future__ import annotations

@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from lifevector_jobs.ats_text import extract_text_layer
+from my_career_agent_jobs.ats_text import extract_text_layer
 
 reportlab = pytest.importorskip("reportlab")
 

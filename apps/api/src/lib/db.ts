@@ -1,6 +1,6 @@
 // Database access. Two connection strings, two roles:
-//   DATABASE_URL        -> login role in lv_app: tenant data behind row-level security
-//   INGEST_DATABASE_URL -> login role in lv_ingest: writes the shared catalog only
+//   DATABASE_URL        -> login role in mca_app: tenant data behind row-level security
+//   INGEST_DATABASE_URL -> login role in mca_ingest: writes the shared catalog only
 // Every tenant query runs in one transaction that first sets app.user_id, so RLS policies apply.
 
 import { neon, type NeonQueryFunction, type NeonQueryPromise } from "@neondatabase/serverless";

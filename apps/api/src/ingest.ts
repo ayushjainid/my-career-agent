@@ -1,7 +1,7 @@
 // Scheduled ingestion: fetch a batch of company boards, diff against the catalog, write changes.
-// Runs as the lv_ingest role (catalog only; no tenant data).
+// Runs as the mca_ingest role (catalog only; no tenant data).
 
-import { compactIntegrity, extractRequirements, type AtsVendor, type NormalizedJob } from "@life-vector/core";
+import { compactIntegrity, extractRequirements, type AtsVendor, type NormalizedJob } from "@my-career-agent/core";
 import { diffBoard, type StoredJobKey } from "./ats/diff.js";
 import { fetchBoard } from "./ats/adapters.js";
 import type { Env } from "./env.js";
@@ -49,14 +49,14 @@ async function ingestCompany(sql: Sql, c: CompanyRow, report: IngestReport): Pro
   const fresh = await fetchBoard({ vendor: c.ats_vendor, board: c.ats_board, region: c.ats_region });
   const stored = (await sql`
     SELECT ats_job_id AS "atsJobId", status, first_seen_at AS "firstSeenAt"
-    FROM lv.job WHERE company_id = ${c.id}`) as StoredJobKey[];
+    FROM mca.job WHERE company_id = ${c.id}`) as StoredJobKey[];
   const diff = diffBoard(fresh, stored.map((s) => ({ ...s, firstSeenAt: new Date(s.firstSeenAt).toISOString() })));
 
   const upserts = [...diff.added, ...diff.stillOpen, ...diff.reopened].map(toRecord);
   const queries = [];
   if (upserts.length) {
     queries.push(sql`
-      INSERT INTO lv.job (company_id, ats_vendor, ats_job_id, title, location_text, remote_type,
+      INSERT INTO mca.job (company_id, ats_vendor, ats_job_id, title, location_text, remote_type,
         pay_min, pay_max, pay_currency, pay_period, pay_source, posted_at, apply_url,
         description_text, requirements, sponsorship_text_signal, integrity, status, last_seen_at)
       SELECT ${c.id}::uuid, r.ats_vendor, r.ats_job_id, r.title, r.location_text, r.remote_type,
@@ -73,14 +73,14 @@ async function ingestCompany(sql: Sql, c: CompanyRow, report: IngestReport): Pro
         pay_period = EXCLUDED.pay_period, pay_source = EXCLUDED.pay_source, apply_url = EXCLUDED.apply_url,
         description_text = EXCLUDED.description_text, requirements = EXCLUDED.requirements,
         sponsorship_text_signal = EXCLUDED.sponsorship_text_signal, integrity = EXCLUDED.integrity,
-        status = CASE WHEN lv.job.status = 'stale' THEN 'stale' ELSE 'open' END,
+        status = CASE WHEN mca.job.status = 'stale' THEN 'stale' ELSE 'open' END,
         last_seen_at = now()`);
   }
   if (diff.closedIds.length)
-    queries.push(sql`UPDATE lv.job SET status = 'closed' WHERE company_id = ${c.id} AND ats_job_id = ANY(${diff.closedIds}::text[])`);
+    queries.push(sql`UPDATE mca.job SET status = 'closed' WHERE company_id = ${c.id} AND ats_job_id = ANY(${diff.closedIds}::text[])`);
   if (diff.staleIds.length)
-    queries.push(sql`UPDATE lv.job SET status = 'stale' WHERE company_id = ${c.id} AND ats_job_id = ANY(${diff.staleIds}::text[])`);
-  queries.push(sql`UPDATE lv.company SET last_fetched_at = now() WHERE id = ${c.id}`);
+    queries.push(sql`UPDATE mca.job SET status = 'stale' WHERE company_id = ${c.id} AND ats_job_id = ANY(${diff.staleIds}::text[])`);
+  queries.push(sql`UPDATE mca.company SET last_fetched_at = now() WHERE id = ${c.id}`);
   await sql.transaction(queries);
 
   report.added += diff.added.length + diff.reopened.length;
@@ -105,7 +105,7 @@ export async function runIngest(env: Env): Promise<IngestReport> {
   const sql = appDb(env.INGEST_DATABASE_URL);
   const batch = Math.max(1, Number(env.INGEST_BOARDS_PER_RUN) || 40);
   const companies = (await sql`
-    SELECT id, ats_vendor, ats_board, ats_region FROM lv.company
+    SELECT id, ats_vendor, ats_board, ats_region FROM mca.company
     WHERE ats_vendor IN ('greenhouse','lever','ashby') AND ats_board IS NOT NULL
     ORDER BY last_fetched_at NULLS FIRST
     LIMIT ${batch}`) as CompanyRow[];

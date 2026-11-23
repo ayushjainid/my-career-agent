@@ -1,10 +1,10 @@
-# Life Vector
+# My Career Agent
 
 A tool-neutral job-search agent: it finds and ranks roles, checks visa sponsorship history, plans
 when to apply where, and prepares an apply packet that any tool (or the built-in copy-assist panel)
 can use. The user always submits.
 
-Design: see the "Life Vector — Technical Design" doc. This repository is the **Foundations** milestone.
+Design: see the "My Career Agent — Technical Design" doc. This repository is the **Foundations** milestone.
 
 ## What works today
 
@@ -18,10 +18,10 @@ Design: see the "Life Vector — Technical Design" doc. This repository is the *
 | Scheduled ingestion into the shared catalog | `apps/api/src/ingest.ts` | Written; needs a live Neon database to exercise |
 | Inbound email: classify alerts, confirmations, rejections; auto-mark submitted | `apps/api/src/email.ts` | Classifier tested; handler needs Email Routing to exercise |
 | API: manual scoring, queue, apply packets, status changes, company preferences | `apps/api/src/routes.ts` | Written; dev auth only (see below) |
-| US sponsor data from DOL LCA + PERM files | `jobs/lifevector_jobs/us_dol.py` | Done, tested; layout changes fail loudly |
-| Company seeding from CSV | `jobs/lifevector_jobs/seed_companies.py` | Done |
+| US sponsor data from DOL LCA + PERM files | `jobs/my_career_agent_jobs/us_dol.py` | Done, tested; layout changes fail loudly |
+| Company seeding from CSV | `jobs/my_career_agent_jobs/seed_companies.py` | Done |
 | Posting integrity check: hidden text removed before scoring, planted instructions flagged | `packages/core/src/postingGuard.ts` | Done, tested; runs in every adapter and in `/score` |
-| ATS text-layer check of a resume PDF (dates, contact details, keywords) | `packages/core/src/atsText.ts`, `jobs/lifevector_jobs/ats_text.py` | Done, tested; wired up with resume rendering |
+| ATS text-layer check of a resume PDF (dates, contact details, keywords) | `packages/core/src/atsText.ts`, `jobs/my_career_agent_jobs/ats_text.py` | Done, tested; wired up with resume rendering |
 | Form-field answers: measured lengths, short variants, figures traced to verified facts | `packages/core/src/formFields.ts` | Done, tested |
 | Language and eligibility gates (citizenship, permanent residency, clearance) | `packages/core/src/gates.ts` | Done, tested; in `/score`, ranking next |
 | Follow-up policy: 10 quiet days, at most two, drafts only, no new claims | `packages/core/src/followups.ts` | Done, tested; cap also enforced in the database |
@@ -72,23 +72,23 @@ cd jobs && pip install -e ".[dev,db]" && pytest -q
    `for f in db/migrations/*.sql; do psql "$NEON_OWNER_URL" -f "$f"; done`
 3. Create two login roles and grant them the group roles the migration created:
    ```sql
-   CREATE ROLE lv_api LOGIN PASSWORD '...';     GRANT lv_app TO lv_api;
-   CREATE ROLE lv_loader LOGIN PASSWORD '...';  GRANT lv_ingest TO lv_loader;
+   CREATE ROLE mca_api LOGIN PASSWORD '...';     GRANT mca_app TO mca_api;
+   CREATE ROLE mca_loader LOGIN PASSWORD '...';  GRANT mca_ingest TO mca_loader;
    ```
-   Never connect the API as the owner: row-level security relies on the API using `lv_app`.
+   Never connect the API as the owner: row-level security relies on the API using `mca_app`.
 
 ### 2. Worker (Cloudflare)
 
 ```bash
 cd apps/api
-npx wrangler secret put DATABASE_URL          # connection string for lv_api
-npx wrangler secret put INGEST_DATABASE_URL   # connection string for lv_loader
+npx wrangler secret put DATABASE_URL          # connection string for mca_api
+npx wrangler secret put INGEST_DATABASE_URL   # connection string for mca_loader
 npx wrangler secret put API_TOKENS            # POC auth: "yourname:<random token>", see below
 npx wrangler deploy
 ```
 
 Make a token with `openssl rand -base64 32` (at least 24 characters). Then check the deploy:
-`LV_URL=https://<your worker> LV_TOKEN=<token> npm run smoke`.
+`MCA_URL=https://<your worker> MCA_TOKEN=<token> npm run smoke`.
 
 For local development create `apps/api/.dev.vars` with both URLs and `DEV_MODE=true`, then `npm run dev`.
 
@@ -96,8 +96,8 @@ For local development create `apps/api/.dev.vars` with both URLs and `DEV_MODE=t
 
 ```bash
 cd jobs
-python -m lifevector_jobs.seed_companies companies.example.csv --database-url "$INGEST_DATABASE_URL"
-python -m lifevector_jobs.us_dol --lca LCA_FY2026_Q3.xlsx --perm PERM_FY2026_Q3.xlsx --database-url "$INGEST_DATABASE_URL"
+python -m my_career_agent_jobs.seed_companies companies.example.csv --database-url "$INGEST_DATABASE_URL"
+python -m my_career_agent_jobs.us_dol --lca LCA_FY2026_Q3.xlsx --perm PERM_FY2026_Q3.xlsx --database-url "$INGEST_DATABASE_URL"
 ```
 
 Or run the **US sponsor data** GitHub Action with the current file URLs from the
@@ -106,7 +106,7 @@ Or run the **US sponsor data** GitHub Action with the current file URLs from the
 ## Set up your profile and build a queue (POC)
 
 ```bash
-H="authorization: Bearer $LV_TOKEN"; U="$LV_URL/api"
+H="authorization: Bearer $MCA_TOKEN"; U="$MCA_URL/api"
 curl -s -X PUT  "$U/profile"      -H "$H" -d '{"homeCountry":"US","dailyTarget":10}'
 curl -s -X POST "$U/facts"        -H "$H" -d '[{"kind":"role","text":"Data engineer at Hooli","skills":["python","sql","aws"],"startDate":"2018-01-01","verified":true}]'
 curl -s -X PUT  "$U/languages"    -H "$H" -d '[{"language":"English","level":"C2"}]'

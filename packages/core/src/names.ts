@@ -1,5 +1,5 @@
 // Company-name normalisation for matching job-board names against legal names in
-// government files. Must stay in sync with jobs/lifevector_jobs/names.py (tested on both sides).
+// government files. Must stay in sync with jobs/my_career_agent_jobs/names.py (tested on both sides).
 
 const SUFFIXES = new Set([
   "INC", "INCORPORATED", "LLC", "L L C", "LTD", "LIMITED", "CORP", "CORPORATION", "CO", "COMPANY",

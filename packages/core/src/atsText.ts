@@ -1,5 +1,5 @@
 // ATS text-layer check: what an applicant-tracking system will actually read from a resume PDF.
-// The PDF is extracted elsewhere (jobs/lifevector_jobs/ats_text.py, or any extractor the user has);
+// The PDF is extracted elsewhere (jobs/my_career_agent_jobs/ats_text.py, or any extractor the user has);
 // these pure functions judge the extracted text. Nothing here depends on how the PDF was made.
 //
 // normalizeText and findNonAsciiDateRanges are ported from tools/verify_pdf.py in ai-job-search

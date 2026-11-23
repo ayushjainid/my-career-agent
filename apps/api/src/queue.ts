@@ -1,5 +1,5 @@
 // POC loop P3 wiring: load one user's inputs, run the pure builder from core, save the result.
-// Every query runs as that user under row-level security; catalog tables are read-only to lv_app.
+// Every query runs as that user under row-level security; catalog tables are read-only to mca_app.
 
 import {
   buildDailyQueue,
@@ -14,7 +14,7 @@ import {
   type QueueResult,
   type Seniority,
   type WorkAuthStatus,
-} from "@life-vector/core";
+} from "@my-career-agent/core";
 import { stmt, type Row, type TenantDb } from "./lib/tenant.js";
 
 const iso = (v: unknown): string | null => {
@@ -31,27 +31,27 @@ export const MAX_JOBS_PER_RUN = 3000;
 
 export async function loadQueueInput(db: TenantDb, userId: string, today: Date): Promise<QueueInput | null> {
   const [users, facts, langs, auth, targets, prefs, contacts, apps, jobs] = await db.asUser(userId, [
-    stmt(`SELECT daily_target, max_active_processes, offer_window_start::text AS offer_window_start FROM lv.app_user`),
-    stmt(`SELECT id, kind, text, skills, start_date::text AS start_date, end_date::text AS end_date, verified FROM lv.fact`),
-    stmt(`SELECT language, level FROM lv.user_language`),
-    stmt(`SELECT country, status, min_lca_filings, min_perm_certified FROM lv.work_auth`),
-    stmt(`SELECT country, seniority, pay_floor, pay_currency FROM lv.target`),
-    stmt(`SELECT company_id, tier, block_mode, block_reason, block_expires_at::text AS block_expires_at, include_subsidiaries FROM lv.company_preference`),
+    stmt(`SELECT daily_target, max_active_processes, offer_window_start::text AS offer_window_start FROM mca.app_user`),
+    stmt(`SELECT id, kind, text, skills, start_date::text AS start_date, end_date::text AS end_date, verified FROM mca.fact`),
+    stmt(`SELECT language, level FROM mca.user_language`),
+    stmt(`SELECT country, status, min_lca_filings, min_perm_certified FROM mca.work_auth`),
+    stmt(`SELECT country, seniority, pay_floor, pay_currency FROM mca.target`),
+    stmt(`SELECT company_id, tier, block_mode, block_reason, block_expires_at::text AS block_expires_at, include_subsidiaries FROM mca.company_preference`),
     stmt(`SELECT company_id, messages_count, last_message_at::text AS last_message_at, connected_on::text AS connected_on,
                  last_ask_at::text AS last_ask_at
-          FROM lv.contact WHERE company_id IS NOT NULL`),
-    stmt(`SELECT a.job_id, a.state, a.created_at, a.planned_date::text AS planned_date, j.company_id FROM lv.application a JOIN lv.job j ON j.id = a.job_id`),
+          FROM mca.contact WHERE company_id IS NOT NULL`),
+    stmt(`SELECT a.job_id, a.state, a.created_at, a.planned_date::text AS planned_date, j.company_id FROM mca.application a JOIN mca.job j ON j.id = a.job_id`),
     stmt(
       `SELECT j.id, j.company_id, j.title, j.country, j.description_text, j.requirements, j.posted_at, j.status,
               j.pay_max, j.pay_currency, j.integrity->>'level' AS integrity_level,
               s.filings, s.perm_certified, s.perm_denied, s.last_filing
-       FROM lv.job j
+       FROM mca.job j
        LEFT JOIN LATERAL (
          SELECT sum(filings) FILTER (WHERE source = 'dol_lca') AS filings,
                 sum(certified) FILTER (WHERE source = 'dol_perm') AS perm_certified,
                 sum(denied) FILTER (WHERE source = 'dol_perm') AS perm_denied,
                 max(period_end)::text AS last_filing
-         FROM lv.sponsor_record r
+         FROM mca.sponsor_record r
          WHERE r.company_id = j.company_id AND r.country = coalesce(j.country, 'US')
        ) s ON true
        WHERE j.status = 'open' AND j.last_seen_at > now() - interval '30 days'
@@ -190,7 +190,7 @@ export async function saveQueue(db: TenantDb, userId: string, today: Date, r: Qu
   }));
   await db.asUser(userId, [
     stmt(
-      `INSERT INTO lv.application (user_id, job_id, state, planned_date, fit_score, rank_score, gates, gate_verdict, notes)
+      `INSERT INTO mca.application (user_id, job_id, state, planned_date, fit_score, rank_score, gates, gate_verdict, notes)
        SELECT $1, x.job_id, 'queued', $2::date, x.fit_score, x.rank_score, x.gates, x.gate_verdict, x.notes
        FROM jsonb_to_recordset($3::jsonb) AS x(job_id uuid, fit_score integer, rank_score numeric, gates jsonb, gate_verdict text, notes text)
        ON CONFLICT (user_id, job_id) DO NOTHING`,
@@ -199,7 +199,7 @@ export async function saveQueue(db: TenantDb, userId: string, today: Date, r: Qu
       JSON.stringify(rows),
     ),
     stmt(
-      `INSERT INTO lv.queue_run (user_id, run_date, builder, queued, held_back, excluded, note)
+      `INSERT INTO mca.queue_run (user_id, run_date, builder, queued, held_back, excluded, note)
        VALUES ($1, $2::date, $3, $4, $5::jsonb, $6::jsonb, $7)
        ON CONFLICT (user_id, run_date) DO UPDATE SET builder = EXCLUDED.builder, queued = EXCLUDED.queued,
          held_back = EXCLUDED.held_back, excluded = EXCLUDED.excluded, note = EXCLUDED.note, created_at = now()`,

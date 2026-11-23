@@ -1,7 +1,7 @@
 // HTML-to-text for job descriptions now goes through the posting integrity check in core, so
 // hidden text never reaches the scorer. These wrappers keep the old call sites working.
 
-import { decodeEntities, guardPosting, type IntegrityReport } from "@life-vector/core";
+import { decodeEntities, guardPosting, type IntegrityReport } from "@my-career-agent/core";
 
 export { decodeEntities };
 

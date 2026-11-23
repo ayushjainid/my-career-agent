@@ -1,5 +1,5 @@
 // Follow-up policy: when a submitted application has gone quiet, offer a short follow-up draft.
-// Drafts only, never sent by Life Vector. At most two per application. A follow-up may only
+// Drafts only, never sent by My Career Agent. At most two per application. A follow-up may only
 // restate claims from materials already submitted for that application.
 //
 // Policy adapted from .claude/commands/outcome.md in ai-job-search (MIT, Copyright (c) 2026

@@ -1,11 +1,11 @@
 // Deploy smoke check (POC loop P0, and the end-to-end smoke run after every later loop).
-// Usage: LV_URL=https://life-vector.<you>.workers.dev LV_TOKEN=... npm run smoke
-// Read-only unless LV_SMOKE_BUILD=1, which also builds today's queue (safe to repeat).
+// Usage: MCA_URL=https://my-career-agent.<you>.workers.dev MCA_TOKEN=... npm run smoke
+// Read-only unless MCA_SMOKE_BUILD=1, which also builds today's queue (safe to repeat).
 
-const base = (process.env.LV_URL ?? "").replace(/\/$/, "");
-const token = process.env.LV_TOKEN ?? "";
+const base = (process.env.MCA_URL ?? "").replace(/\/$/, "");
+const token = process.env.MCA_TOKEN ?? "";
 if (!base || !token) {
-  console.error("Set LV_URL and LV_TOKEN.");
+  console.error("Set MCA_URL and MCA_TOKEN.");
   process.exit(2);
 }
 
@@ -36,7 +36,7 @@ await check("profile", async () => {
   const p = await (await expectStatus(await get("/profile"), 200)).json();
   return `${p.facts.verified}/${p.facts.n} facts verified, ${p.targets.length} targets`;
 });
-if (process.env.LV_SMOKE_BUILD === "1") {
+if (process.env.MCA_SMOKE_BUILD === "1") {
   await check("build queue", async () => {
     const r = await expectStatus(await fetch(`${base}/api/queue/build`, { method: "POST", headers: { authorization: `Bearer ${token}` } }), 200);
     const b = await r.json();

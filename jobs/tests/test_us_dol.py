@@ -4,8 +4,8 @@ from pathlib import Path
 import pytest
 from openpyxl import Workbook
 
-from lifevector_jobs.names import normalize_company_name
-from lifevector_jobs.us_dol import LayoutError, main, summarise_lca, summarise_perm
+from my_career_agent_jobs.names import normalize_company_name
+from my_career_agent_jobs.us_dol import LayoutError, main, summarise_lca, summarise_perm
 
 ROOT = Path(__file__).resolve().parents[2]
 

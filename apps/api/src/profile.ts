@@ -1,7 +1,7 @@
 // POC loop P2 (profile) and P3 (queue) endpoints. Everything goes through TenantDb, so the same
 // handlers run against Neon in production and against the real migrations in tests.
 
-import { LANGUAGE_LEVELS, canonicalizeSkill, isoDate, type Seniority } from "@life-vector/core";
+import { LANGUAGE_LEVELS, canonicalizeSkill, isoDate, type Seniority } from "@my-career-agent/core";
 import { Hono } from "hono";
 import type { AppBindings } from "./env.js";
 import { stmt } from "./lib/tenant.js";
@@ -42,7 +42,7 @@ profile.put("/profile", async (c) => {
   const uid = c.get("userId");
   await c.get("db").asUser(uid, [
     stmt(
-      `INSERT INTO lv.app_user (user_id, home_country, daily_target, max_active_processes, offer_window_start)
+      `INSERT INTO mca.app_user (user_id, home_country, daily_target, max_active_processes, offer_window_start)
        VALUES ($1, $2, $3, $4, $5::date)
        ON CONFLICT (user_id) DO UPDATE SET home_country = EXCLUDED.home_country, daily_target = EXCLUDED.daily_target,
          max_active_processes = EXCLUDED.max_active_processes, offer_window_start = EXCLUDED.offer_window_start`,
@@ -55,11 +55,11 @@ profile.put("/profile", async (c) => {
 profile.get("/profile", async (c) => {
   const uid = c.get("userId");
   const [u, facts, langs, auth, targets] = await c.get("db").asUser(uid, [
-    stmt(`SELECT home_country, daily_target, max_active_processes, offer_window_start::text AS offer_window_start FROM lv.app_user`),
-    stmt(`SELECT count(*)::int AS n, count(*) FILTER (WHERE verified)::int AS verified FROM lv.fact`),
-    stmt(`SELECT language, level FROM lv.user_language ORDER BY language`),
-    stmt(`SELECT country, status, visa_type, min_lca_filings, min_perm_certified FROM lv.work_auth ORDER BY country`),
-    stmt(`SELECT id, country, title, seniority, pay_floor, pay_currency FROM lv.target ORDER BY title`),
+    stmt(`SELECT home_country, daily_target, max_active_processes, offer_window_start::text AS offer_window_start FROM mca.app_user`),
+    stmt(`SELECT count(*)::int AS n, count(*) FILTER (WHERE verified)::int AS verified FROM mca.fact`),
+    stmt(`SELECT language, level FROM mca.user_language ORDER BY language`),
+    stmt(`SELECT country, status, visa_type, min_lca_filings, min_perm_certified FROM mca.work_auth ORDER BY country`),
+    stmt(`SELECT id, country, title, seniority, pay_floor, pay_currency FROM mca.target ORDER BY title`),
   ]);
   if (!u?.length) return c.json({ error: "no profile yet: PUT /api/profile first" }, 404);
   return c.json({ settings: u[0], facts: facts?.[0], languages: langs, workAuth: auth, targets });
@@ -97,7 +97,7 @@ profile.post("/facts", async (c) => {
   const uid = c.get("userId");
   const [rows] = await c.get("db").asUser(uid, [
     stmt(
-      `INSERT INTO lv.fact (user_id, kind, text, org, skills, start_date, end_date, verified)
+      `INSERT INTO mca.fact (user_id, kind, text, org, skills, start_date, end_date, verified)
        SELECT $1, x.kind, x.text, x.org, x.skills, x."startDate", x."endDate", x.verified
        FROM jsonb_to_recordset($2::jsonb) AS x(kind text, text text, org text, skills text[], "startDate" date, "endDate" date, verified boolean)
        RETURNING id`,
@@ -110,7 +110,7 @@ profile.post("/facts", async (c) => {
 profile.get("/facts", async (c) => {
   const [rows] = await c.get("db").asUser(c.get("userId"), [
     stmt(`SELECT id, kind, text, org, skills, start_date::text AS start_date, end_date::text AS end_date, verified
-          FROM lv.fact ORDER BY start_date DESC NULLS LAST, created_at`),
+          FROM mca.fact ORDER BY start_date DESC NULLS LAST, created_at`),
   ]);
   return c.json({ items: rows });
 });
@@ -126,7 +126,7 @@ profile.patch("/facts/:id", async (c) => {
   const verified = b.verified === undefined ? null : (b.verified as boolean);
   const [rows] = await c.get("db").asUser(c.get("userId"), [
     stmt(
-      `UPDATE lv.fact SET text = coalesce($2, text),
+      `UPDATE mca.fact SET text = coalesce($2, text),
          verified = CASE WHEN $3::boolean IS NOT NULL THEN $3::boolean WHEN $2::text IS NOT NULL THEN false ELSE verified END
        WHERE id = $1 RETURNING id, verified`,
       id, text, verified,
@@ -139,7 +139,7 @@ profile.patch("/facts/:id", async (c) => {
 profile.delete("/facts/:id", async (c) => {
   const id = c.req.param("id");
   if (!UUID.test(id)) return c.json({ error: "bad fact id" }, 400);
-  const [rows] = await c.get("db").asUser(c.get("userId"), [stmt(`DELETE FROM lv.fact WHERE id = $1 RETURNING id`, id)]);
+  const [rows] = await c.get("db").asUser(c.get("userId"), [stmt(`DELETE FROM mca.fact WHERE id = $1 RETURNING id`, id)]);
   return rows?.length ? c.json({ ok: true }) : c.json({ error: "fact not found" }, 404);
 });
 
@@ -158,9 +158,9 @@ profile.put("/languages", async (c) => {
   }
   const uid = c.get("userId");
   await c.get("db").asUser(uid, [
-    stmt(`DELETE FROM lv.user_language`),
+    stmt(`DELETE FROM mca.user_language`),
     stmt(
-      `INSERT INTO lv.user_language (user_id, language, level)
+      `INSERT INTO mca.user_language (user_id, language, level)
        SELECT DISTINCT ON (x.language) $1, x.language, x.level FROM jsonb_to_recordset($2::jsonb) AS x(language text, level text)`,
       uid, JSON.stringify(items),
     ),
@@ -180,7 +180,7 @@ profile.put("/work-auth/:country", async (c) => {
   const uid = c.get("userId");
   await c.get("db").asUser(uid, [
     stmt(
-      `INSERT INTO lv.work_auth (user_id, country, status, visa_type, needs_new_cap_petition, min_lca_filings, min_perm_certified)
+      `INSERT INTO mca.work_auth (user_id, country, status, visa_type, needs_new_cap_petition, min_lca_filings, min_perm_certified)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
        ON CONFLICT (user_id, country) DO UPDATE SET status = EXCLUDED.status, visa_type = EXCLUDED.visa_type,
          needs_new_cap_petition = EXCLUDED.needs_new_cap_petition, min_lca_filings = EXCLUDED.min_lca_filings,
@@ -204,7 +204,7 @@ profile.post("/targets", async (c) => {
   if (payFloor !== null && !currency) return c.json({ error: "payCurrency is required with payFloor" }, 400);
   const [rows] = await c.get("db").asUser(c.get("userId"), [
     stmt(
-      `INSERT INTO lv.target (user_id, country, title, seniority, pay_floor, pay_currency)
+      `INSERT INTO mca.target (user_id, country, title, seniority, pay_floor, pay_currency)
        VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
       c.get("userId"), country, title, seniority, payFloor, currency,
     ),
@@ -215,7 +215,7 @@ profile.post("/targets", async (c) => {
 profile.delete("/targets/:id", async (c) => {
   const id = c.req.param("id");
   if (!UUID.test(id)) return c.json({ error: "bad target id" }, 400);
-  const [rows] = await c.get("db").asUser(c.get("userId"), [stmt(`DELETE FROM lv.target WHERE id = $1 RETURNING id`, id)]);
+  const [rows] = await c.get("db").asUser(c.get("userId"), [stmt(`DELETE FROM mca.target WHERE id = $1 RETURNING id`, id)]);
   return rows?.length ? c.json({ ok: true }) : c.json({ error: "target not found" }, 404);
 });
 
@@ -226,7 +226,7 @@ profile.get("/companies", async (c) => {
   const [rows] = await c.get("db").asUser(c.get("userId"), [
     stmt(
       `SELECT c.id, c.name, c.domain, c.ats_vendor, p.tier, p.block_mode
-       FROM lv.company c LEFT JOIN lv.company_preference p ON p.company_id = c.id
+       FROM mca.company c LEFT JOIN mca.company_preference p ON p.company_id = c.id
        WHERE c.name ILIKE '%' || $1 || '%' OR c.domain ILIKE '%' || $1 || '%'
        ORDER BY c.name LIMIT 25`,
       q.replace(/[%_\\]/g, (m) => `\\${m}`),
@@ -251,9 +251,9 @@ profile.get("/queue", async (c) => {
     stmt(`SELECT a.id, a.state, a.planned_date::text AS planned_date, a.fit_score, a.rank_score, a.gate_verdict, a.notes,
                  j.id AS job_id, j.title, j.location_text, j.remote_type, j.apply_url,
                  j.pay_min, j.pay_max, j.pay_currency, j.integrity->>'level' AS integrity, c.name AS company
-          FROM lv.application a
-          JOIN lv.job j ON j.id = a.job_id
-          JOIN lv.company c ON c.id = j.company_id
+          FROM mca.application a
+          JOIN mca.job j ON j.id = a.job_id
+          JOIN mca.company c ON c.id = j.company_id
           WHERE a.planned_date <= current_date AND a.state IN ('queued','approved','ready_for_review')
           ORDER BY a.planned_date, a.rank_score DESC NULLS LAST`),
   ]);
@@ -265,7 +265,7 @@ profile.get("/queue/runs/:date", async (c) => {
   const date = c.req.param("date");
   if (!DATE.test(date)) return c.json({ error: "date must be YYYY-MM-DD" }, 400);
   const [rows] = await c.get("db").asUser(c.get("userId"), [
-    stmt(`SELECT run_date::text AS run_date, builder, queued, held_back, excluded, note FROM lv.queue_run WHERE run_date = $1::date`, date),
+    stmt(`SELECT run_date::text AS run_date, builder, queued, held_back, excluded, note FROM mca.queue_run WHERE run_date = $1::date`, date),
   ]);
   return rows?.length ? c.json(rows[0]) : c.json({ error: "no run on that day" }, 404);
 });

@@ -1,6 +1,6 @@
 // Compares a fresh board fetch with what is stored, so ingestion writes only what changed.
 
-import type { NormalizedJob } from "@life-vector/core";
+import type { NormalizedJob } from "@my-career-agent/core";
 
 export interface StoredJobKey {
   atsJobId: string;

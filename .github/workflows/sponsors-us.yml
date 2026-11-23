@@ -51,7 +51,7 @@ jobs:
           echo "ARGS=${args[*]}" >> "$GITHUB_ENV"
       - name: Summarise and load
         if: env.ARGS != ''
-        run: python -m lifevector_jobs.us_dol ${ARGS} --out out
+        run: python -m my_career_agent_jobs.us_dol ${ARGS} --out out
       - uses: actions/upload-artifact@v4
         if: env.ARGS != ''
         with:

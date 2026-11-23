@@ -30,6 +30,6 @@ jobs:
       - run: pip install -e ".[db]"
       - run: |
           if [ ! -f companies.csv ]; then echo "Add jobs/companies.csv (see companies.example.csv)"; exit 1; fi
-          python -m lifevector_jobs.seed_companies companies.csv
+          python -m my_career_agent_jobs.seed_companies companies.csv
         env:
           DATABASE_OWNER_URL: ${{ secrets.DATABASE_OWNER_URL }}

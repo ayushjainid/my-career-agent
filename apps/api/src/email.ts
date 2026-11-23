@@ -1,7 +1,7 @@
 // Inbound email: users forward LinkedIn job alerts and ATS confirmation emails to a personal
 // address (<local>@INBOUND_DOMAIN). Confirmations mark applications submitted with no tool integration.
 
-import { normalizeCompanyName } from "@life-vector/core";
+import { normalizeCompanyName } from "@my-career-agent/core";
 import type { Env } from "./env.js";
 import { appDb, withUser } from "./lib/db.js";
 
@@ -61,7 +61,7 @@ async function readSample(raw: ReadableStream<Uint8Array>, limit = 20_000): Prom
 export async function handleEmail(message: ForwardableEmailMessage, env: Env): Promise<void> {
   const local = message.to.split("@")[0]?.toLowerCase() ?? "";
   const sql = appDb(env.DATABASE_URL);
-  const route = (await sql`SELECT user_id FROM lv.inbound_route WHERE local_part = ${local}`) as Array<{ user_id: string }>;
+  const route = (await sql`SELECT user_id FROM mca.inbound_route WHERE local_part = ${local}`) as Array<{ user_id: string }>;
   const userId = route[0]?.user_id;
   if (!userId) {
     message.setReject("Unknown recipient");
@@ -77,24 +77,24 @@ export async function handleEmail(message: ForwardableEmailMessage, env: Env): P
 
   await withUser(sql, userId, (q) => {
     const queries = [
-      q`INSERT INTO lv.inbound_email (user_id, from_address, subject, classification)
+      q`INSERT INTO mca.inbound_email (user_id, from_address, subject, classification)
         VALUES (${userId}, ${from}, ${subject.slice(0, 500)}, ${kind})`,
     ];
     if (kind === "application_confirmation" && companyNorm) {
       // Mark the most recent approved / ready application at that company as submitted.
       queries.push(q`
         WITH target AS (
-          SELECT a.id FROM lv.application a
-          JOIN lv.job j ON j.id = a.job_id
-          JOIN lv.company c ON c.id = j.company_id
+          SELECT a.id FROM mca.application a
+          JOIN mca.job j ON j.id = a.job_id
+          JOIN mca.company c ON c.id = j.company_id
           WHERE a.state IN ('approved','ready_for_review')
             AND (c.name_norm = ${companyNorm} OR ${companyNorm} = ANY (c.aliases))
           ORDER BY a.created_at DESC LIMIT 1
         ), upd AS (
-          UPDATE lv.application SET state = 'submitted', submitted_at = now()
+          UPDATE mca.application SET state = 'submitted', submitted_at = now()
           WHERE id IN (SELECT id FROM target) RETURNING id
         )
-        INSERT INTO lv.application_event (user_id, application_id, kind, payload)
+        INSERT INTO mca.application_event (user_id, application_id, kind, payload)
         SELECT ${userId}, id, 'email_detected', jsonb_build_object('subject', ${subject.slice(0, 200)}::text)
         FROM upd`);
     }

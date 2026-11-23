@@ -14,9 +14,9 @@ const migrations = readdirSync(migrationsDir)
 let db: PGlite;
 
 async function asUser(userId: string | null, sql: string, params: unknown[] = []) {
-  // Mirrors the API: one transaction, role lv_app, user id set transaction-locally.
+  // Mirrors the API: one transaction, role mca_app, user id set transaction-locally.
   return db.transaction(async (tx) => {
-    await tx.query("SET LOCAL ROLE lv_app");
+    await tx.query("SET LOCAL ROLE mca_app");
     if (userId) await tx.query("SELECT set_config('app.user_id', $1, true)", [userId]);
     return tx.query(sql, params);
   });
@@ -29,9 +29,9 @@ beforeAll(async () => {
   for (const u of ["alice", "bob"]) {
     await db.transaction(async (tx) => {
       await tx.query("SELECT set_config('app.user_id', $1, true)", [u]);
-      await tx.query("INSERT INTO lv.app_user (user_id, home_country) VALUES ($1, 'US')", [u]);
+      await tx.query("INSERT INTO mca.app_user (user_id, home_country) VALUES ($1, 'US')", [u]);
       await tx.query(
-        "INSERT INTO lv.fact (user_id, kind, text, verified) VALUES ($1, 'achievement', $2, true)",
+        "INSERT INTO mca.fact (user_id, kind, text, verified) VALUES ($1, 'achievement', $2, true)",
         [u, `${u} shipped a thing`],
       );
     });
@@ -40,39 +40,39 @@ beforeAll(async () => {
 
 describe("tenant isolation", () => {
   it("returns only the current user's rows", async () => {
-    const res = await asUser("alice", "SELECT user_id, text FROM lv.fact");
+    const res = await asUser("alice", "SELECT user_id, text FROM mca.fact");
     expect(res.rows).toHaveLength(1);
     expect((res.rows[0] as { user_id: string }).user_id).toBe("alice");
   });
 
   it("returns nothing when no user is set", async () => {
-    const res = await asUser(null, "SELECT * FROM lv.fact");
+    const res = await asUser(null, "SELECT * FROM mca.fact");
     expect(res.rows).toHaveLength(0);
   });
 
   it("refuses to insert a row for another user", async () => {
     await expect(
-      asUser("alice", "INSERT INTO lv.fact (user_id, kind, text) VALUES ('bob', 'skill', 'x')"),
+      asUser("alice", "INSERT INTO mca.fact (user_id, kind, text) VALUES ('bob', 'skill', 'x')"),
     ).rejects.toThrow(/row-level security/);
   });
 
   it("cannot update another user's rows (silently matches nothing)", async () => {
-    const res = await asUser("alice", "UPDATE lv.fact SET text = 'hacked' WHERE user_id = 'bob'");
+    const res = await asUser("alice", "UPDATE mca.fact SET text = 'hacked' WHERE user_id = 'bob'");
     expect(res.affectedRows ?? 0).toBe(0);
-    const bob = await asUser("bob", "SELECT text FROM lv.fact");
+    const bob = await asUser("bob", "SELECT text FROM mca.fact");
     expect((bob.rows[0] as { text: string }).text).toBe("bob shipped a thing");
   });
 
   it("lets the app read the shared catalog but not write it", async () => {
-    const read = await asUser("alice", "SELECT count(*)::int AS n FROM lv.job");
+    const read = await asUser("alice", "SELECT count(*)::int AS n FROM mca.job");
     expect((read.rows[0] as { n: number }).n).toBe(0);
     await expect(
-      asUser("alice", "INSERT INTO lv.company (name, name_norm) VALUES ('X', 'X')"),
+      asUser("alice", "INSERT INTO mca.company (name, name_norm) VALUES ('X', 'X')"),
     ).rejects.toThrow(/permission denied/);
   });
 
   it("keeps the audit log append-only for the app", async () => {
-    await expect(asUser("alice", "DELETE FROM lv.application_event")).rejects.toThrow(
+    await expect(asUser("alice", "DELETE FROM mca.application_event")).rejects.toThrow(
       /permission denied/,
     );
   });
@@ -82,9 +82,9 @@ describe("tenant isolation", () => {
       SELECT c.relname AS table_name, c.relrowsecurity AS rls, c.relforcerowsecurity AS forced
       FROM pg_class c
       JOIN pg_namespace n ON n.oid = c.relnamespace
-      WHERE n.nspname = 'lv' AND c.relkind = 'r'
+      WHERE n.nspname = 'mca' AND c.relkind = 'r'
         AND EXISTS (SELECT 1 FROM information_schema.columns col
-                    WHERE col.table_schema = 'lv' AND col.table_name = c.relname
+                    WHERE col.table_schema = 'mca' AND col.table_name = c.relname
                       AND col.column_name = 'user_id')
         AND c.relname <> 'inbound_route'`);
     expect(res.rows.length).toBeGreaterThanOrEqual(10);
@@ -97,20 +97,20 @@ describe("tenant isolation", () => {
 
 describe("0002: languages, answers, follow-up cap", () => {
   it("isolates declared languages", async () => {
-    await asUser("alice", "INSERT INTO lv.user_language (user_id, language, level) VALUES ('alice', 'spanish', 'native')");
-    expect((await asUser("bob", "SELECT * FROM lv.user_language")).rows).toHaveLength(0);
-    expect((await asUser("alice", "SELECT * FROM lv.user_language")).rows).toHaveLength(1);
+    await asUser("alice", "INSERT INTO mca.user_language (user_id, language, level) VALUES ('alice', 'spanish', 'native')");
+    expect((await asUser("bob", "SELECT * FROM mca.user_language")).rows).toHaveLength(0);
+    expect((await asUser("alice", "SELECT * FROM mca.user_language")).rows).toHaveLength(1);
   });
 
   it("allows at most two follow-ups per application", async () => {
-    const company = await db.query<{ id: string }>("INSERT INTO lv.company (name, name_norm) VALUES ('Acme', 'ACME') RETURNING id");
+    const company = await db.query<{ id: string }>("INSERT INTO mca.company (name, name_norm) VALUES ('Acme', 'ACME') RETURNING id");
     const job = await db.query<{ id: string }>(
-      "INSERT INTO lv.job (company_id, ats_vendor, ats_job_id, title, description_text) VALUES ($1, 'greenhouse', '1', 'Eng', 'x') RETURNING id",
+      "INSERT INTO mca.job (company_id, ats_vendor, ats_job_id, title, description_text) VALUES ($1, 'greenhouse', '1', 'Eng', 'x') RETURNING id",
       [company.rows[0]?.id],
     );
-    const app = await asUser("alice", "INSERT INTO lv.application (user_id, job_id, state) VALUES ('alice', $1, 'submitted') RETURNING id", [job.rows[0]?.id]);
+    const app = await asUser("alice", "INSERT INTO mca.application (user_id, job_id, state) VALUES ('alice', $1, 'submitted') RETURNING id", [job.rows[0]?.id]);
     const appId = (app.rows[0] as { id: string }).id;
-    const send = () => asUser("alice", "INSERT INTO lv.application_event (user_id, application_id, kind) VALUES ('alice', $1, 'followup_sent')", [appId]);
+    const send = () => asUser("alice", "INSERT INTO mca.application_event (user_id, application_id, kind) VALUES ('alice', $1, 'followup_sent')", [appId]);
     await send();
     await send();
     await expect(send()).rejects.toThrow(/at most two follow-ups/);
