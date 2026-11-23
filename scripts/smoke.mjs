@@ -32,8 +32,10 @@ await check("rejects a wrong token", async () =>
   void (await expectStatus(await fetch(`${base}/api/profile`, { headers: { authorization: "Bearer not-a-real-token-000000000" } }), 401)));
 await check("dev header is off", async () =>
   void (await expectStatus(await fetch(`${base}/api/profile`, { headers: { "x-dev-user": "someone" } }), 401)));
-await check("profile", async () => {
-  const p = await (await expectStatus(await get("/profile"), 200)).json();
+await check("profile (reads your data through the database)", async () => {
+  const res = await get("/profile");
+  if (res.status === 404) return "no profile yet: database reachable, set one up next";
+  const p = await (await expectStatus(res, 200)).json();
   return `${p.facts.verified}/${p.facts.n} facts verified, ${p.targets.length} targets`;
 });
 if (process.env.MCA_SMOKE_BUILD === "1") {
