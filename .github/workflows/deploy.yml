@@ -3,16 +3,13 @@ name: Deploy POC
 # Every push to main: test, migrate the database, deploy the Worker, then smoke-test it.
 # A failed step stops everything after it, so a broken build never reaches the database or users.
 #
-# Repository secrets (Settings > Secrets and variables > Actions):
-#   CLOUDFLARE_API_TOKEN   token with "Edit Cloudflare Workers" permission
+# Four repository secrets (Settings > Secrets and variables > Actions), nothing else:
+#   CLOUDFLARE_API_TOKEN   token from the "Edit Cloudflare Workers" template
 #   CLOUDFLARE_ACCOUNT_ID  your Cloudflare account id
-#   DATABASE_OWNER_URL     Neon owner connection string (migrations only)
-#   DATABASE_URL           Neon string for the lv_api login role
-#   INGEST_DATABASE_URL    Neon string for the lv_loader login role
-#   API_TOKENS             "yourname:<random token>" (POC auth)
-#   LV_TOKEN               the token part of API_TOKENS, for the smoke test
-# Repository variable:
-#   LV_URL                 the Worker URL, e.g. https://life-vector-api.<subdomain>.workers.dev
+#   DATABASE_OWNER_URL     Neon owner connection string (EU region)
+#   LV_TOKEN               your API token: `openssl rand -base64 32`
+# The app's own database logins and their connection strings are derived from DATABASE_OWNER_URL
+# (scripts/db-urls.mjs) and created by the migrate job.
 
 on:
   push:
@@ -36,21 +33,49 @@ jobs:
       - run: npm run typecheck
       - run: npm test
 
-  migrate:
+  preflight:
     needs: test
     runs-on: ubuntu-latest
-    environment: production
+    steps:
+      - name: Check secrets are set
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          DATABASE_OWNER_URL: ${{ secrets.DATABASE_OWNER_URL }}
+          LV_TOKEN: ${{ secrets.LV_TOKEN }}
+        run: |
+          missing=0
+          for n in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID DATABASE_OWNER_URL LV_TOKEN; do
+            if [ -z "${!n}" ]; then echo "::error::Secret $n is not set (see DEPLOY.md)"; missing=1; fi
+          done
+          if [ ${#LV_TOKEN} -lt 24 ]; then echo "::error::LV_TOKEN must be at least 24 characters"; missing=1; fi
+          exit $missing
+
+  migrate:
+    needs: preflight
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_OWNER_URL: ${{ secrets.DATABASE_OWNER_URL }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - run: node scripts/db-urls.mjs
       - run: scripts/migrate.sh
-        env:
-          DATABASE_OWNER_URL: ${{ secrets.DATABASE_OWNER_URL }}
+      - name: App login roles
+        run: >
+          psql "$DATABASE_OWNER_URL" -q -v api_password="$LV_API_DB_PASSWORD"
+          -v loader_password="$LV_LOADER_DB_PASSWORD" -f scripts/bootstrap_roles.sql
 
   deploy:
     needs: migrate
     runs-on: ubuntu-latest
-    environment: production
+    outputs:
+      url: ${{ steps.wrangler.outputs.deployment-url }}
+    env:
+      DATABASE_OWNER_URL: ${{ secrets.DATABASE_OWNER_URL }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -58,7 +83,9 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - uses: cloudflare/wrangler-action@v3
+      - run: node scripts/db-urls.mjs
+      - id: wrangler
+        uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -69,14 +96,11 @@ jobs:
             INGEST_DATABASE_URL
             API_TOKENS
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          INGEST_DATABASE_URL: ${{ secrets.INGEST_DATABASE_URL }}
-          API_TOKENS: ${{ secrets.API_TOKENS }}
+          API_TOKENS: founder:${{ secrets.LV_TOKEN }}
 
   smoke:
     needs: deploy
     runs-on: ubuntu-latest
-    environment: production
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -84,5 +108,7 @@ jobs:
           node-version: 22
       - run: npm run smoke
         env:
-          LV_URL: ${{ vars.LV_URL }}
+          LV_URL: ${{ vars.LV_URL || needs.deploy.outputs.url }}
           LV_TOKEN: ${{ secrets.LV_TOKEN }}
+      - name: Where it lives
+        run: echo "Deployed to ${{ vars.LV_URL || needs.deploy.outputs.url }}" >> "$GITHUB_STEP_SUMMARY"

@@ -12,12 +12,18 @@ on:
 jobs:
   seed:
     runs-on: ubuntu-latest
-    environment: production
     defaults:
       run:
         working-directory: jobs
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Derive the loader connection string
+        run: node ../scripts/db-urls.mjs
+        env:
+          DATABASE_OWNER_URL: ${{ secrets.DATABASE_OWNER_URL }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -26,4 +32,4 @@ jobs:
           if [ ! -f companies.csv ]; then echo "Add jobs/companies.csv (see companies.example.csv)"; exit 1; fi
           python -m lifevector_jobs.seed_companies companies.csv
         env:
-          INGEST_DATABASE_URL: ${{ secrets.INGEST_DATABASE_URL }}
+          DATABASE_OWNER_URL: ${{ secrets.DATABASE_OWNER_URL }}

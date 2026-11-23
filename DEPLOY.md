@@ -1,53 +1,52 @@
 # Deploying the POC
 
-The repository deploys itself: every push to `main` runs tests, applies new database migrations,
-deploys the Worker and smoke-tests it (`.github/workflows/deploy.yml`). You set it up once.
+Every push to `main` deploys itself (`.github/workflows/deploy.yml`): tests, database
+migrations, the app's database logins, the Worker, then a smoke test against the live URL.
+You only create two accounts and add four secrets, once.
 
-## 1. Neon (database, EU)
+## 1. Neon (database)
 
-1. Create a project at neon.tech in an EU region (for example Frankfurt). Copy the owner
-   connection string: this is `DATABASE_OWNER_URL`.
-2. Apply the migrations: `DATABASE_OWNER_URL=... scripts/migrate.sh`
-   (or let the first deploy run do it).
-3. Create the two login roles the app uses:
-   `psql "$DATABASE_OWNER_URL" -v api_password=... -v loader_password=... -f scripts/bootstrap_roles.sql`
-4. Build two connection strings from the owner string, swapping in the new users and passwords:
-   `DATABASE_URL` (user `lv_api`) and `INGEST_DATABASE_URL` (user `lv_loader`).
+1. Sign up at neon.tech and create a project in an **EU region** (for example AWS Frankfurt).
+2. On the project dashboard, click **Connect** and copy the connection string for the owner role
+   (`neondb_owner`). That is `DATABASE_OWNER_URL`.
 
 ## 2. Cloudflare (Worker)
 
-1. Sign up (free plan is enough to start). Note the account id on the Workers overview page.
-2. Create an API token from the "Edit Cloudflare Workers" template: `CLOUDFLARE_API_TOKEN`.
-3. Your Worker URL will be `https://life-vector-api.<your-subdomain>.workers.dev`: `LV_URL`.
+1. Sign up at dash.cloudflare.com (the free plan is enough). Open **Workers & Pages** once so
+   Cloudflare sets up your `workers.dev` subdomain.
+2. Copy your **Account ID** (Workers & Pages overview, right side): `CLOUDFLARE_ACCOUNT_ID`.
+3. My Profile > API Tokens > Create Token > template **Edit Cloudflare Workers** >
+   choose your account > Create: `CLOUDFLARE_API_TOKEN`.
 
-## 3. GitHub settings
+## 3. GitHub secrets
 
-In the repository, Settings > Secrets and variables > Actions:
+Repository > Settings > Secrets and variables > Actions > New repository secret:
 
-| Name | Kind | Value |
-| --- | --- | --- |
-| `CLOUDFLARE_API_TOKEN` | secret | from step 2 |
-| `CLOUDFLARE_ACCOUNT_ID` | secret | from step 2 |
-| `DATABASE_OWNER_URL` | secret | Neon owner string |
-| `DATABASE_URL` | secret | `lv_api` string |
-| `INGEST_DATABASE_URL` | secret | `lv_loader` string |
-| `API_TOKENS` | secret | `yourname:<openssl rand -base64 32>` |
-| `LV_TOKEN` | secret | the token part only |
-| `LV_URL` | variable | the Worker URL |
+| Name | Value |
+| --- | --- |
+| `CLOUDFLARE_API_TOKEN` | from step 2 |
+| `CLOUDFLARE_ACCOUNT_ID` | from step 2 |
+| `DATABASE_OWNER_URL` | from step 1 |
+| `LV_TOKEN` | your API key: run `openssl rand -base64 32` and keep a copy |
 
-Create an environment named `production` (Settings > Environments). Add a required reviewer if
-you want to approve each deploy.
+The app's two database logins (`lv_api`, `lv_loader`) and their connection strings are derived
+from the owner string at deploy time (`scripts/db-urls.mjs`); there is nothing else to store.
 
-## 4. Deploy and check (loop P0)
+## 4. Deploy (loop P0)
 
-Run **Deploy POC** from the Actions tab (or push to `main`). The last job runs `npm run smoke`
-against the live Worker; P0 is done when it passes.
+Actions > **Deploy POC** > Run workflow. The run summary shows the Worker URL. P0 is done when the
+last job, `smoke`, passes. Use the URL and `LV_TOKEN` for the README's profile commands.
 
-## 5. Load companies and sponsor data (loop P1)
+## 5. Companies and sponsor data (loop P1)
 
-1. Copy `jobs/companies.example.csv` to `jobs/companies.csv`, list your 100 target companies with
-   their ATS board names, push. **Seed companies** runs on that push.
-2. Run **US sponsor data** with the current LCA and PERM file URLs from the OFLC page.
-3. Ingestion runs every 3 hours by itself. The daily queue is built at 06:05 UTC.
+1. Copy `jobs/companies.example.csv` to `jobs/companies.csv`, list your target companies with
+   their ATS board names, and push. **Seed companies** runs on that push.
+2. Run **US sponsor data** with the current LCA and PERM file URLs from the
+   [OFLC performance page](https://www.dol.gov/agencies/eta/foreign-labor/performance).
+3. Ingestion runs every 3 hours by itself; the daily queue is built at 06:05 UTC.
 
-Then set up your profile with the commands in the README and start the P2 and P3 checks.
+## Rotating credentials
+
+- Database: reset the owner password in Neon, update `DATABASE_OWNER_URL`, re-run **Deploy POC**.
+  The app logins get new passwords on the same run.
+- API key: change `LV_TOKEN` and re-run **Deploy POC**.
