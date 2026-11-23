@@ -172,6 +172,7 @@ describe("gates", () => {
     expect(eligibilityGate("Active TS/SCI clearance.", "citizen").verdict).toBe("FLAG");
     expect(eligibilityGate("Active TS/SCI clearance.", null).verdict).toBe("FLAG");
     expect(eligibilityGate("We sponsor visas.", "needs_sponsorship").verdict).toBe("PASS");
+    expect(eligibilityGate("About us.\nMust be a U.S. citizen. Hybrid role.", "work_visa").notes[0]).toBe('Citizens only: "Must be a U.S. citizen. Hybrid role."');
   });
 });
 

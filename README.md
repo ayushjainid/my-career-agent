@@ -38,12 +38,22 @@ Each loop is done only when its automated check, its real-use check and its exit
 | P1 Catalog | Adapters, ingestion, sponsor loader, integrity check | Passing: fixtures, diff | 3 days of clean ingestion; 20 jobs hand-checked |
 | P2 Profile and scoring | `/profile`, `/facts`, `/languages`, `/work-auth`, `/targets`, `/companies`, `/score` | Passing: end-to-end on in-process Postgres | Hand-label 10 jobs; ranks agree on 8 or more |
 | P3 Daily queue | `buildDailyQueue` (core), `apps/api/src/queue.ts`, daily cron, `/queue/build`, `/queue/runs/:date` | Passing: unit + end-to-end | Review 3 daily queues: 7 of 10 worth applying |
-| P4 Referrals | Contact scoring in the queue | Partial | Not started: Connections CSV import next |
-| P5 Apply packet and tracker | `/packets/:jobId`, `/applications/:id/status` | Passing: state machine end-to-end | Not started: copy-assist page next |
+| P4 Referrals | `parseLinkedInExport`, `/connections/import`, `/referrals/:jobId`, drafted asks | Passing: parser + end-to-end | Import your export; 50 matches sampled, 90% right |
+| P5 Apply packet and tracker | Answer bank, form-answer checks, `/packets/:jobId`, `/applications`, web app | Passing: end-to-end + browser walkthrough | 10 real applications, no wrong answers |
+
+## The web app
+
+Open the Worker URL and sign in with your `MCA_TOKEN`. Pages: **Today** (build and review the
+queue, referrals, approve or skip), **Packet** (copy-assist fields, free-text answers with
+measured lengths and fact checks, status), **Tracker**, **Profile** (facts, targets, languages,
+work authorization, tiers and blacklist), **Answers** (answer bank), **Connections** (LinkedIn
+export import) and **Score a job**.
+
+Try it without any accounts: `npx tsx scripts/dev-local.mts`, then open http://localhost:8788.
+It runs the real app on an in-memory database with four demo companies.
 
 ## Not built yet
 
-- POC: LinkedIn Connections import (P4), copy-assist page and form answers in the packet (P5).
 - Beta: Better Auth and OAuth for MCP (B1), resume rendering (B2), inbound email and follow-ups
   (B3), MCP connector (B4), timing and pay (B5), billing (B6), UK and Canada packs (B7).
 - UK, Canada and Netherlands country packs; entity resolution beyond exact normalised names.

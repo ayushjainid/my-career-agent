@@ -109,9 +109,16 @@ const CITIZEN_ONLY = /\b(?:must be (?:a |an )?(?:u\.?s\.?|us|united states|uk|br
 const PR_OR_CITIZEN = /\b(?:green card|permanent residen(?:t|ce|cy)|(?:u\.?s\.?|us) persons?\b|itar|export[- ]controlled|indefinite leave to remain|settled status)\b/i;
 const CLEARANCE = /\b(?:security clearance|clearance (?:is )?required|active clearance|ts\/sci|top secret|secret clearance|public trust|polygraph|sc clearance|dv clearance|nv1|nv2|baseline clearance)\b/i;
 
+/** The line of the posting that triggered a rule (abbreviations like "U.S." stay intact). */
 function quoteLine(text: string, re: RegExp): string {
-  const line = text.split(/\n|(?<=[.;])\s+/).find((l) => re.test(l)) ?? "";
-  return line.trim().slice(0, 200);
+  const m = new RegExp(re.source, re.flags.replace("g", "")).exec(text);
+  if (!m) return "";
+  const start = text.lastIndexOf("\n", m.index) + 1;
+  const endNl = text.indexOf("\n", m.index + m[0].length);
+  const line = text.slice(start, endNl === -1 ? text.length : endNl).trim();
+  if (line.length <= 200) return line;
+  const from = Math.max(0, m.index - start - 80);
+  return `${from ? "\u2026" : ""}${line.slice(from, from + 200).trim()}\u2026`;
 }
 
 /**

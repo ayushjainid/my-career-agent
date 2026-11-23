@@ -219,6 +219,15 @@ profile.delete("/targets/:id", async (c) => {
   return rows?.length ? c.json({ ok: true }) : c.json({ error: "target not found" }, 404);
 });
 
+/** Companies the user has tiered or blocked. */
+profile.get("/preferences", async (c) => {
+  const [rows] = await c.get("db").asUser(c.get("userId"), [
+    stmt(`SELECT p.company_id, c.name, p.tier, p.block_mode, p.block_reason, p.block_expires_at::text AS block_expires_at
+          FROM mca.company_preference p JOIN mca.company c ON c.id = p.company_id ORDER BY c.name`),
+  ]);
+  return c.json({ items: rows });
+});
+
 /** Find companies in the shared catalog (for tiers and the blacklist). */
 profile.get("/companies", async (c) => {
   const q = (c.req.query("q") ?? "").trim().slice(0, 80);
@@ -250,10 +259,13 @@ profile.get("/queue", async (c) => {
   const [rows] = await c.get("db").asUser(c.get("userId"), [
     stmt(`SELECT a.id, a.state, a.planned_date::text AS planned_date, a.fit_score, a.rank_score, a.gate_verdict, a.notes,
                  j.id AS job_id, j.title, j.location_text, j.remote_type, j.apply_url,
-                 j.pay_min, j.pay_max, j.pay_currency, j.integrity->>'level' AS integrity, c.name AS company
+                 j.pay_min, j.pay_max, j.pay_currency, j.integrity->>'level' AS integrity, c.name AS company, c.id AS company_id,
+                 (SELECT count(*) FROM mca.contact ct WHERE ct.company_id = j.company_id)::int AS contacts,
+                 rc.full_name AS referral_name
           FROM mca.application a
           JOIN mca.job j ON j.id = a.job_id
           JOIN mca.company c ON c.id = j.company_id
+          LEFT JOIN mca.contact rc ON rc.id = a.referral_contact_id
           WHERE a.planned_date <= current_date AND a.state IN ('queued','approved','ready_for_review')
           ORDER BY a.planned_date, a.rank_score DESC NULLS LAST`),
   ]);

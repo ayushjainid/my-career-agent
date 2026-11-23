@@ -20,7 +20,9 @@ import { Hono, type MiddlewareHandler } from "hono";
 import type { AppBindings } from "./env.js";
 import { appDb } from "./lib/db.js";
 import { neonTenantDb, stmt } from "./lib/tenant.js";
+import { packets } from "./packets.js";
 import { profile } from "./profile.js";
+import { referrals } from "./referrals.js";
 import { canTransition, isAppState, type AppState } from "./lib/transitions.js";
 
 export const api = new Hono<AppBindings>();
@@ -68,6 +70,8 @@ api.get("/health", (c) => c.json({ ok: true, service: "my-career-agent-api", ver
 
 api.use("/*", requireUser);
 api.route("/", profile);
+api.route("/", referrals);
+api.route("/", packets);
 
 const SENIORITIES: Seniority[] = ["entry", "mid", "senior", "lead", "executive"];
 
@@ -116,28 +120,6 @@ api.post("/score", async (c) => {
   });
 });
 
-/** Apply packet: everything any tool needs to fill the form. Sensitive answers come only from the bank. */
-api.get("/packets/:jobId", async (c) => {
-  const jobId = c.req.param("jobId");
-  if (!/^[0-9a-f-]{36}$/i.test(jobId)) return c.json({ error: "bad job id" }, 400);
-  const [jobs = [], answers = [], apps = []] = await c.get("db").asUser(c.get("userId"), [
-    stmt(`SELECT j.id, j.title, j.apply_url, j.ats_vendor, j.location_text, c.name AS company
-          FROM mca.job j JOIN mca.company c ON c.id = j.company_id WHERE j.id = $1`, jobId),
-    stmt(`SELECT question_key, answer, sensitive FROM mca.answer_bank_entry ORDER BY question_key`),
-    stmt(`SELECT a.id, a.state, ct.full_name AS referral_name
-          FROM mca.application a LEFT JOIN mca.contact ct ON ct.id = a.referral_contact_id
-          WHERE a.job_id = $1`, jobId),
-  ]);
-  if (!jobs.length) return c.json({ error: "job not found" }, 404);
-  return c.json({
-    job: jobs[0],
-    application: apps[0] ?? null,
-    answers,
-    resume: null, // tailored resume rendering lands with the web app milestone
-    rules: ["Sensitive answers are copied exactly from your answer bank.", "You review and submit every application yourself."],
-  });
-});
-
 /** State changes go through the state machine and are logged to the append-only event table. */
 api.post("/applications/:id/status", async (c) => {
   const id = c.req.param("id");
@@ -163,6 +145,10 @@ api.post("/applications/:id/status", async (c) => {
           INSERT INTO mca.application_event (user_id, application_id, kind, payload)
           SELECT $4, u.id, 'state_change', $5::jsonb FROM u RETURNING application_id`,
       id, to, from, userId, JSON.stringify({ from, to, note: body.note ?? null })),
+    // Follow-ups may only restate what the employer received: freeze it at submission.
+    stmt(`UPDATE mca.application_answer SET submitted_text = concat_ws(E'\\n', text, short_text)
+          WHERE application_id = $1 AND $2::text = 'submitted'
+            AND EXISTS (SELECT 1 FROM mca.application WHERE id = $1 AND state = 'submitted')`, id, to),
   ]);
   if (!changed.length) return c.json({ error: "the application changed meanwhile; reload and retry" }, 409);
   return c.json({ ok: true, state: to });
