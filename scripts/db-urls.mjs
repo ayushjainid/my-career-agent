@@ -4,7 +4,7 @@
 // password rotates these too (the next deploy re-applies them).
 //
 // Usage in GitHub Actions: `node scripts/db-urls.mjs` masks the values in the log and appends
-// MCA_API_DB_PASSWORD, MCA_LOADER_DB_PASSWORD, DATABASE_URL and INGEST_DATABASE_URL to $GITHUB_ENV.
+// MCA_API_DB_PASSWORD, MCA_LOADER_DB_PASSWORD, DATABASE_URL, INGEST_DATABASE_URL and AI_KEY_SECRET to $GITHUB_ENV.
 // Elsewhere it prints them as KEY=value lines.
 import { createHmac } from "node:crypto";
 import { appendFileSync } from "node:fs";
@@ -30,6 +30,9 @@ const out = {
   MCA_LOADER_DB_PASSWORD: loader,
   DATABASE_URL: withUser("mca_api", api),
   INGEST_DATABASE_URL: withUser("mca_loader", loader),
+  // Encrypts people's own AI provider keys. Rotating the owner password changes it, after which
+  // saved AI keys can't be read and people are asked to add them again.
+  AI_KEY_SECRET: derive("ai-key-secret") + derive("ai-key-secret-2"),
 };
 const lines = Object.entries(out).map(([k, v]) => `${k}=${v}`).join("\n") + "\n";
 if (process.env.GITHUB_ENV) {

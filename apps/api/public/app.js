@@ -1,0 +1,1359 @@
+"use strict";
+// My Career Agent web app. No framework and no build step.
+// Every value from the server is written with textContent or as an SVG text node, never as HTML,
+// so a job posting or a contact name cannot inject script.
+
+// ---------------------------------------------------------------- helpers
+const $main = document.getElementById("main");
+const SVGNS = "http://www.w3.org/2000/svg";
+
+function el(tag, attrs, ...kids) {
+  const n = document.createElement(tag);
+  setAttrs(n, attrs);
+  append(n, kids);
+  return n;
+}
+function svg(tag, attrs, ...kids) {
+  const n = document.createElementNS(SVGNS, tag);
+  setAttrs(n, attrs);
+  append(n, kids);
+  return n;
+}
+function setAttrs(n, attrs) {
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v === null || v === undefined || v === false) continue;
+    if (k.startsWith("on")) n.addEventListener(k.slice(2), v);
+    else if (k === "class") n.setAttribute("class", v);
+    else if (k === "value") n.value = v;
+    else if (k === "checked" || k === "selected") n[k] = !!v;
+    else if (k === "style" && typeof v === "object") for (const [sk, sv] of Object.entries(v)) sk.startsWith("--") ? n.style.setProperty(sk, sv) : (n.style[sk] = sv);
+    else n.setAttribute(k, v === true ? "" : String(v));
+  }
+}
+function append(n, kids) {
+  for (const kid of kids.flat(Infinity)) if (kid !== null && kid !== undefined && kid !== false) n.append(kid instanceof Node ? kid : String(kid));
+}
+function icon(name, label) {
+  const s = svg("svg", { "aria-hidden": label ? null : "true", role: label ? "img" : null, "aria-label": label || null, width: 16, height: 16 });
+  s.append(svg("use", { href: `#i-${name}` }));
+  return s;
+}
+const clear = (node, ...kids) => { node.replaceChildren(); append(node, kids); return node; };
+function render(...nodes) { clear($main, nodes); }
+function toast(text) {
+  const t = document.getElementById("toast");
+  t.textContent = text;
+  t.classList.add("show");
+  clearTimeout(toast.t);
+  toast.t = setTimeout(() => t.classList.remove("show"), 2000);
+}
+const MSG_ICON = { go: "check", hold: "alert", stop: "stop", info: "info" };
+const msg = (kind, ...body) => el("div", { class: `msg ${kind}`, role: kind === "stop" ? "alert" : null }, icon(MSG_ICON[kind] || "info"), el("div", { class: "grow" }, body));
+const loading = () => el("div", { class: "loading", "aria-label": "Loading" }, el("i"), el("i"), el("i"));
+const todayIso = () => new Date().toISOString().slice(0, 10);
+const plural = (n, one, many = one + "s") => `${n} ${n === 1 ? one : many}`;
+const fmtDate = (d, opts) => {
+  if (!d) return "";
+  const t = new Date(String(d).length === 10 ? `${d}T12:00:00Z` : d);
+  return Number.isNaN(+t) ? "" : t.toLocaleDateString(undefined, opts || { month: "short", day: "numeric" });
+};
+const fmtDay = (d) => fmtDate(d, { month: "short", day: "numeric", year: "numeric" });
+function money(n, cur) {
+  if (n === null || n === undefined || n === "") return "";
+  try { return new Intl.NumberFormat(undefined, { style: "currency", currency: cur || "USD", maximumFractionDigits: 0 }).format(Number(n)); }
+  catch { return `${cur || ""} ${Math.round(Number(n)).toLocaleString()}`.trim(); }
+}
+const short = (s, n) => (s && s.length > n ? s.slice(0, n - 1).trimEnd() + "…" : s || "");
+async function copy(text) {
+  try { await navigator.clipboard.writeText(text); }
+  catch { const t = el("textarea", { value: text }); document.body.append(t); t.select(); document.execCommand("copy"); t.remove(); }
+  toast("Copied");
+}
+const TRAILING = new Set(["arrow", "out"]);
+function btn(label, opts = {}) {
+  const b = el("button", { type: opts.type || "button", class: `btn ${opts.kind || ""} ${opts.small ? "small" : ""}`.trim(), onclick: opts.onclick, "aria-label": opts.aria || null, title: opts.title || null },
+    opts.icon && !TRAILING.has(opts.icon) ? icon(opts.icon) : null, label, opts.icon && TRAILING.has(opts.icon) ? icon(opts.icon) : null);
+  return b;
+}
+/** Disables the button while the action runs, shows any error in `where`, and never fails silently. */
+function action(button, where, fn) {
+  button.addEventListener("click", async (e) => {
+    e.preventDefault();
+    if (button.getAttribute("aria-busy") === "true") return;
+    button.setAttribute("aria-busy", "true");
+    try { await fn(e); if (where) where.replaceChildren(); }
+    catch (err) { if (err.status !== 401 && where) clear(where, msg("stop", err.message)); }
+    finally { button.removeAttribute("aria-busy"); }
+  });
+  return button;
+}
+/** Two-step confirm for consequential actions: the first press arms it, the second does it. */
+function confirmBtn(label, armedLabel, where, fn, kind = "danger") {
+  const b = btn(label, { kind });
+  let armed = false, t = null;
+  b.addEventListener("click", async () => {
+    if (!armed) {
+      armed = true; b.classList.add("armed"); b.lastChild.textContent = armedLabel;
+      t = setTimeout(() => { armed = false; b.classList.remove("armed"); b.lastChild.textContent = label; }, 5000);
+      return;
+    }
+    clearTimeout(t);
+    b.setAttribute("aria-busy", "true");
+    try { await fn(); } catch (err) { if (where && err.status !== 401) clear(where, msg("stop", err.message)); }
+    finally { b.removeAttribute("aria-busy"); armed = false; b.classList.remove("armed"); b.lastChild.textContent = label; }
+  });
+  return b;
+}
+function field(labelText, control, hint) {
+  const id = control.id || `f${Math.random().toString(36).slice(2, 9)}`;
+  control.id = id;
+  return el("div", {}, el("label", { for: id }, labelText, hint ? el("span", { class: "note" }, ` ${hint}`) : null), control);
+}
+const input = (attrs) => el("input", attrs);
+const select = (options, value, attrs = {}) =>
+  el("select", attrs, options.map(([v, l]) => el("option", { value: v, selected: String(v) === String(value ?? "") }, l)));
+
+// ---------------------------------------------------------------- session and API
+// Signed-in browsers use an HttpOnly session cookie. A personal access token (POC accounts) is kept
+// for this tab only, in sessionStorage, and sent as a bearer header.
+const tokenStore = {
+  mem: null,
+  get() { try { return sessionStorage.getItem("mca_token") ?? this.mem; } catch { return this.mem; } },
+  set(v) { this.mem = v; try { v ? sessionStorage.setItem("mca_token", v) : sessionStorage.removeItem("mca_token"); } catch {} },
+};
+class ApiError extends Error { constructor(status, message) { super(message); this.status = status; } }
+async function request(method, path, body) {
+  const headers = {};
+  const tok = tokenStore.get();
+  if (tok) headers.authorization = `Bearer ${tok}`;
+  if (body !== undefined) headers["content-type"] = "application/json";
+  let res;
+  try { res = await fetch(`/api${path}`, { method, headers, credentials: "same-origin", body: body !== undefined ? JSON.stringify(body) : undefined }); }
+  catch { throw new ApiError(0, "Can't reach My Career Agent. Check your connection and try again."); }
+  return res;
+}
+async function api(method, path, body) {
+  const res = await request(method, path, body);
+  let data = null;
+  try { data = await res.json(); } catch {}
+  if (res.status === 401 && !path.startsWith("/auth/")) {
+    state.me = null; tokenStore.set(null);
+    location.hash = "#/signin";
+    throw new ApiError(401, "Your session ended. Sign in again.");
+  }
+  if (!res.ok) throw new ApiError(res.status, (data && data.error) || `Something went wrong (${res.status}). Try again.`);
+  return data;
+}
+/** Downloads an authenticated file (works for cookie and token sessions alike). */
+async function download(path, fallbackName) {
+  const res = await request("GET", path.replace(/^\/api/, ""));
+  if (!res.ok) { let m = `Download failed (${res.status}).`; try { m = (await res.json()).error || m; } catch {} throw new ApiError(res.status, m); }
+  const blob = await res.blob();
+  const cd = res.headers.get("content-disposition") || "";
+  const name = (/filename="?([^";]+)"?/.exec(cd) || [])[1] || fallbackName;
+  const url = URL.createObjectURL(blob);
+  const a = el("a", { href: url, download: name });
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+const state = { me: null, aiKey: undefined };
+
+// ---------------------------------------------------------------- lines and stages
+// Each company owns one saturated line colour, from a stable hash of its id. Every hue holds 3:1
+// against the working ground as a graphic; text never sits on a line colour.
+// No red, green or amber: those mean state here and never sit on a line.
+const LINE_COLOURS = ["#0b5cad", "#7c3aad", "#b3186d", "#00796b", "#7a5230", "#3f4a5a", "#0e7490"];
+function hashOf(key) {
+  let h = 2166136261;
+  for (const ch of String(key || "")) { h ^= ch.codePointAt(0); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+/** The companies the person has applied to get distinct colours while there are ten or fewer;
+ *  the assignment depends only on the set of companies, so it's the same on every screen. */
+const lineAssign = new Map();
+function assignLines(companyIds, first = []) {
+  // Live companies claim distinct colours before the rest, so the map never repeats a colour.
+  const lead = [...new Set(first.filter(Boolean).map(String))].sort();
+  const ids = [...new Set([...lead, ...[...new Set(companyIds.filter(Boolean).map(String))].filter((x) => !lead.includes(x)).sort()])];
+  lineAssign.clear();
+  const used = new Set();
+  for (const id of ids) {
+    let i = hashOf(id) % LINE_COLOURS.length;
+    for (let k = 0; k < LINE_COLOURS.length && used.has(i); k++) i = (i + 1) % LINE_COLOURS.length;
+    used.add(i);
+    if (used.size >= LINE_COLOURS.length) used.clear();
+    lineAssign.set(id, LINE_COLOURS[i]);
+  }
+}
+function lineColour(key) {
+  return lineAssign.get(String(key)) || LINE_COLOURS[hashOf(key) % LINE_COLOURS.length];
+}
+async function ensureLines(force) {
+  if (lineAssign.size && !force) return;
+  try { const items = (await api("GET", "/applications")).items; assignLines(items.map((a) => a.company_id), items.filter((a) => ACTIVE.includes(a.state)).map((a) => a.company_id)); } catch {}
+}
+const bullet = (key, reached = true) => el("span", { class: `bullet ${reached ? "reached" : ""}`, style: { "--line": lineColour(key) }, "aria-hidden": "true" });
+const coName = (key, name) => el("span", { class: "co" }, bullet(key), name);
+
+// Mirrors apps/api/src/lib/transitions.ts. The server enforces it; this only offers valid moves.
+const NEXT = {
+  queued: ["approved", "skipped"], approved: ["ready_for_review", "submitted", "failed", "skipped"],
+  ready_for_review: ["submitted", "failed", "approved", "skipped"], failed: ["approved", "skipped"],
+  submitted: ["screen", "interview", "rejected", "withdrawn", "offer"], screen: ["interview", "rejected", "withdrawn", "offer"],
+  interview: ["interview", "offer", "rejected", "withdrawn"], offer: ["withdrawn"], rejected: [], withdrawn: [], skipped: ["queued"],
+};
+const STATE_LABEL = {
+  queued: "Queued", approved: "Approved", ready_for_review: "Ready for review", submitted: "Submitted", screen: "Screen",
+  interview: "Interview", offer: "Offer", rejected: "Rejected", withdrawn: "Withdrawn", failed: "Couldn't apply", skipped: "Skipped",
+};
+const STATE_TONE = { offer: "go", interview: "go", screen: "go", rejected: "stop", failed: "hold", ready_for_review: "hold" };
+const STAGE_ORDER = ["queued", "approved", "ready_for_review", "failed", "submitted", "screen", "interview", "offer", "rejected", "withdrawn", "skipped"];
+const stateTag = (s) => el("span", { class: `tag ${STATE_TONE[s] || ""}` }, STATE_LABEL[s] || s);
+async function moveTo(appId, to, note) { await api("POST", `/applications/${appId}/status`, { state: to, note }); toast(STATE_LABEL[to]); }
+
+const COUNTRIES = [["US", "United States"], ["GB", "United Kingdom"], ["CA", "Canada"]];
+const COUNTRY_NAME = Object.fromEntries(COUNTRIES);
+const WORK_STATUS = [["needs_sponsorship", "Needs visa sponsorship"], ["work_visa", "Has a work visa, no new sponsorship"], ["permanent_resident", "Permanent resident"], ["citizen", "Citizen"]];
+const CURRENCY = { US: "USD", GB: "GBP", CA: "CAD" };
+
+// ---------------------------------------------------------------- shell
+const ROUTES = [["today", "Today"], ["applications", "Applications"], ["followups", "Follow-ups"], ["network", "Network"], ["profile", "Profile"], ["settings", "Settings"]];
+function shell(active) {
+  const nav = document.getElementById("nav"), who = document.getElementById("who"), foot = document.getElementById("foot");
+  if (!state.me) { nav.replaceChildren(); who.replaceChildren(); }
+  else {
+    clear(nav, ROUTES.map(([r, label]) => el("a", { href: `#/${r}`, "aria-current": r === active ? "page" : null }, label,
+      r === "followups" && state.followupCount ? el("span", { class: "count", "aria-label": `${state.followupCount} due` }, state.followupCount) : null)));
+    const out = btn("Sign out", { kind: "quiet" });
+    out.addEventListener("click", signOut);
+    clear(who, state.me.email ? el("span", { class: "email" }, state.me.email) : null, out);
+  }
+  clear(foot, el("span", {}, "You review and submit every application yourself."), el("a", { href: "#/privacy" }, "Privacy"), el("a", { href: "#/terms" }, "Terms"));
+}
+async function signOut() {
+  try { if (!tokenStore.get()) await api("POST", "/auth/logout"); } catch {}
+  tokenStore.set(null); state.me = null; state.aiKey = undefined;
+  location.hash = "#/signin";
+}
+async function loadMe() {
+  try { state.me = await api("GET", "/auth/me"); } catch (e) { state.me = null; if (e.status && e.status !== 401) throw e; }
+  return state.me;
+}
+
+const VIEWS = {};
+async function route() {
+  const parts = location.hash.replace(/^#\/?/, "").split("/");
+  let [name = "", ...args] = parts;
+  args = args.map(decodeURIComponent);
+  if (["privacy", "terms"].includes(name)) { shell(name); await VIEWS[name](); return; }
+  if (!state.me) {
+    render(loading());
+    try { await loadMe(); } catch (e) { render(msg("stop", e.message)); return; }
+  }
+  if (!state.me) { shell("signin"); VIEWS.signin(name === "signup" ? "signup" : "signin"); return; }
+  if (name === "signin" || name === "signup" || !name) name = state.me.onboarding.complete ? "today" : "setup";
+  shell(name);
+  render(loading());
+  const view = VIEWS[name] || VIEWS.today;
+  try { if (name !== "setup") await ensureLines(name === "today" || name === "applications"); await view(...args); }
+  catch (e) { if (e.status !== 401) render(el("div", { class: "page-head" }, el("h1", {}, "That didn't load")), msg("stop", e.message, " ", el("a", { href: location.hash, onclick: () => setTimeout(route) }, "Try again"))); }
+  if (!args.length) $main.focus({ preventScroll: true });
+}
+window.addEventListener("hashchange", () => { window.scrollTo(0, 0); document.getElementById("toast").classList.remove("show"); route(); });
+const pageHead = (title, lede, ...actions) =>
+  el("div", { class: "page-head" }, el("div", { class: "grow" }, el("h1", {}, title), lede ? el("p", { class: "lede" }, lede) : null), actions.length ? el("div", { class: "row" }, actions) : null);
+
+// ---------------------------------------------------------------- sign in / sign up
+function gateArt() {
+  const s = svg("svg", { viewBox: "0 0 520 220", "aria-hidden": "true" });
+  const lines = [["#d1242f", 40], ["#0b5cad", 90], ["#1a7f37", 140], ["#c25e00", 190]];
+  for (const [c, y] of lines) {
+    s.append(svg("path", { d: `M10 ${y} H${300 - Math.abs(115 - y) / 3} C ${380} ${y}, ${390} 115, 430 115`, stroke: c, "stroke-width": 7, fill: "none", "stroke-linecap": "round" }));
+    for (const x of [80, 170, 250]) s.append(svg("circle", { cx: x, cy: y, r: 8, fill: x < 200 || y < 100 ? c : "#15181d", stroke: c, "stroke-width": 4 }));
+  }
+  s.append(svg("rect", { x: 418, y: 22, width: 46, height: 186, rx: 23, fill: "#15181d", stroke: "#ecebe6", "stroke-width": 4 }));
+  return s;
+}
+VIEWS.signin = (mode = "signin") => {
+  const out = el("div", { "aria-live": "polite" });
+  const email = input({ type: "email", autocomplete: "email", required: true, inputmode: "email" });
+  const pw = input({ type: "password", autocomplete: mode === "signup" ? "new-password" : "current-password", required: true, minlength: mode === "signup" ? 10 : null });
+  const invite = input({ autocomplete: "off", autocapitalize: "characters", spellcheck: "false" });
+  const submit = btn(mode === "signup" ? "Create account" : "Sign in", { kind: "primary", type: "submit" });
+  const form = el("form", { novalidate: true },
+    field("Email", email),
+    field("Password", pw, mode === "signup" ? "(at least 10 characters)" : null),
+    mode === "signup" ? field("Invite code", invite, "(from your beta invitation)") : null,
+    el("div", { class: "row" }, submit),
+    out);
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    submit.setAttribute("aria-busy", "true");
+    try {
+      if (mode === "signup") await api("POST", "/auth/signup", { email: email.value, password: pw.value, inviteCode: invite.value });
+      else await api("POST", "/auth/login", { email: email.value, password: pw.value });
+      tokenStore.set(null);
+      await loadMe();
+      location.hash = state.me && state.me.onboarding.complete ? "#/today" : "#/setup";
+      route();
+    } catch (err) { clear(out, msg("stop", err.message)); }
+    finally { submit.removeAttribute("aria-busy"); }
+  });
+
+  const tok = input({ type: "password", autocomplete: "off", placeholder: "mca_pat_…" });
+  const tokOut = el("div");
+  const tokBtn = btn("Use token", { type: "submit" });
+  const tokForm = el("form", { class: "stack" }, field("Access token", tok), el("div", { class: "row" }, tokBtn), tokOut);
+  tokForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    tokenStore.set(tok.value.trim());
+    try { const me = await loadMe(); if (!me) throw new ApiError(401, "That token wasn't accepted."); location.hash = "#/today"; route(); }
+    catch (err) { tokenStore.set(null); clear(tokOut, msg("stop", err.message)); }
+  });
+
+  const tab = (m, label) => el("button", { role: "tab", "aria-selected": String(m === mode), onclick: () => { location.hash = m === "signup" ? "#/signup" : "#/signin"; } }, label);
+  render(el("div", { class: "gate" },
+    el("div", { class: "gate-art" },
+      el("div", {}, el("h1", {}, "Every application, timed for your offer window."),
+        el("p", {}, "My Career Agent picks the roles worth your time at employers that actually sponsor, prepares each application from facts you've confirmed, and tells you when to follow up. You submit every application yourself.")),
+      gateArt()),
+    el("div", { class: "gate-form" },
+      el("div", { class: "tabs", role: "tablist" }, tab("signin", "Sign in"), tab("signup", "Create account")),
+      form,
+      el("details", { style: { marginTop: "32px" } }, el("summary", {}, "Sign in with an access token"),
+        el("p", { class: "note" }, "For accounts created before sign-up existed, or for testing. The token is kept in this tab only."), tokForm))));
+  email.focus();
+};
+VIEWS.signup = () => VIEWS.signin("signup");
+
+// ---------------------------------------------------------------- setup wizard
+const STEP_HELP = {
+  work_auth: ["Where can you work?", "Pick the countries you're applying in and your status in each. If you need sponsorship, we only show employers with a public record of sponsoring."],
+  targets: ["Which roles?", "Add the job titles you're applying for. Pay floors are optional; jobs that post less are flagged, not hidden."],
+  facts: ["Your experience", "Paste your resume and confirm each statement is true. Only confirmed facts are used in scores, resumes and answers. You need at least three."],
+  languages: ["Languages", "Jobs that need a language you haven't listed are left out; a higher level than yours is flagged."],
+  answers: ["Essential answers", "The questions every form asks. Packets copy these exactly and nothing is ever guessed."],
+  network: ["LinkedIn connections (optional)", "Import your own LinkedIn export to see who can refer you. Nothing is scraped and your LinkedIn login is never used."],
+};
+VIEWS.setup = async (stepId) => {
+  await loadMe();
+  const steps = state.me.onboarding.steps;
+  const current = steps.find((s) => s.id === stepId) || steps.find((s) => !s.done) || steps[steps.length - 1];
+  const idx = steps.indexOf(current);
+  const stepper = el("ol", { class: "stepper", "aria-label": "Setup progress" }, steps.map((s, i) =>
+    el("li", { class: [s.done ? "done" : "", s === current ? "current" : "", s.optional ? "optional" : ""].join(" ") },
+      el("a", { href: `#/setup/${s.id}`, "aria-current": s === current ? "step" : null },
+        el("span", { class: "dot" }), el("span", {}, s.label, s.done ? el("span", { class: "vh" }, " (done)") : null)))));
+  const body = el("div");
+  const out = el("div");
+  const next = async () => {
+    await loadMe();
+    const after = state.me.onboarding.steps.slice(idx + 1).find((s) => !s.done);
+    location.hash = after ? `#/setup/${after.id}` : "#/setup/finish";
+  };
+  if (stepId === "finish" || (state.me.onboarding.complete && !stepId)) return setupFinish(stepper);
+  const [title, help] = STEP_HELP[current.id];
+  render(el("div", { class: "wizard" }, stepper, pageHead(title, help), out, body));
+  await STEP_FORMS[current.id](body, next, out);
+};
+async function setupFinish(stepper) {
+  const out = el("div");
+  const go = btn("Build my first queue", { kind: "primary", icon: "arrow" });
+  action(go, out, async () => {
+    const r = await api("POST", "/queue/build");
+    toast(`Queued ${r.queued}`);
+    location.hash = "#/today";
+  });
+  render(el("div", { class: "wizard" }, stepper,
+    pageHead(state.me.onboarding.complete ? "You're set up" : "Almost there",
+      state.me.onboarding.complete
+        ? "Your first queue is built from your targets, your confirmed facts and the employers that sponsor. After today it's rebuilt every morning at 06:05 UTC."
+        : "Some required steps are still open. Pick one above to finish it."),
+    state.me.onboarding.complete ? el("div", { class: "row" }, go, el("a", { class: "btn quiet", href: "#/settings" }, "Review settings first")) : null, out));
+}
+const wizardFoot = (primary, note, skip) => el("div", { class: "wizard-foot" }, el("span", { class: "grow" }, note || ""), skip, primary);
+
+const STEP_FORMS = {
+  async work_auth(body, next, out) {
+    let p = null;
+    try { p = await api("GET", "/profile"); } catch (e) { if (e.status !== 404) throw e; }
+    const have = new Map(((p && p.workAuth) || []).map((a) => [a.country, a]));
+    const home = select([["", "Choose…"], ...COUNTRIES, ["IN", "India"], ["CN", "China"], ["XX", "Somewhere else"]], (p && p.settings.home_country) || "");
+    const rows = COUNTRIES.map(([code, name]) => {
+      const on = input({ type: "checkbox", checked: have.has(code) || (!have.size && code === "US") });
+      const st = select(WORK_STATUS, (have.get(code) || {}).status || "needs_sponsorship", { "aria-label": `Status in ${name}` });
+      return { code, on, st, node: el("li", {}, el("label", { class: "check grow" }, on, el("span", {}, el("strong", {}, name))), el("div", { style: { minWidth: "260px", flex: "1 1 260px" } }, st)) };
+    });
+    const save = btn("Save and continue", { kind: "primary", icon: "arrow" });
+    action(save, out, async () => {
+      const picked = rows.filter((r) => r.on.checked);
+      if (!picked.length) throw new Error("Pick at least one country.");
+      const s = (p && p.settings) || {};
+      await api("PUT", "/profile", { homeCountry: home.value && home.value !== "XX" ? home.value : null, dailyTarget: s.daily_target ?? 10, maxActiveProcesses: s.max_active_processes ?? 8, offerWindowStart: s.offer_window_start ?? null });
+      for (const r of picked) await api("PUT", `/work-auth/${r.code}`, { status: r.st.value });
+      await next();
+    });
+    clear(body, el("div", { class: "sheet stack" },
+      field("Where do you live now?", home),
+      el("div", {}, el("div", { class: "label" }, "Countries you're applying in"), el("ul", { class: "list" }, rows.map((r) => r.node))),
+      el("p", { class: "note measure" }, "Sponsorship evidence: US employers by H-1B (LCA) and PERM filings, UK employers on the Home Office register of licensed sponsors, Canadian employers by approved LMIA positions.")),
+      wizardFoot(save));
+  },
+
+  async targets(body, next, out) {
+    const p = await api("GET", "/profile");
+    const countries = p.workAuth.map((a) => a.country);
+    const list = el("ul", { class: "list" });
+    const drawList = (items) => clear(list, items.length ? items.map((t) => el("li", {}, el("span", { class: "grow" }, el("strong", {}, t.title), el("span", { class: "note" }, ` · ${COUNTRY_NAME[t.country] || t.country}${t.seniority ? ` · ${t.seniority}` : ""}${t.pay_floor ? ` · from ${money(t.pay_floor, t.pay_currency)}` : ""}`))))
+      : el("li", { class: "note" }, "No roles yet."));
+    drawList(p.targets);
+    const title = input({ placeholder: "Data Engineer, Analytics Engineer", autocomplete: "off" });
+    const country = select(countries.map((c) => [c, COUNTRY_NAME[c] || c]), countries[0]);
+    const level = select([["", "Any level"], ["entry", "Entry"], ["mid", "Mid"], ["senior", "Senior"], ["lead", "Lead"], ["executive", "Executive"]], "");
+    const floor = input({ type: "number", min: 0, step: 1000, inputmode: "numeric" });
+    const add = btn("Add role", { icon: "plus" });
+    action(add, out, async () => {
+      const titles = title.value.split(",").map((t) => t.trim()).filter(Boolean);
+      if (!titles.length) throw new Error("Type a job title first.");
+      for (const t of titles) await api("POST", "/targets", { title: t, country: country.value, seniority: level.value || null, payFloor: floor.value ? Number(floor.value) : null, payCurrency: floor.value ? CURRENCY[country.value] || "USD" : null });
+      title.value = ""; drawList((await api("GET", "/profile")).targets); toast("Added");
+    });
+    const cont = btn("Continue", { kind: "primary", icon: "arrow" });
+    action(cont, out, async () => { if (!(await api("GET", "/profile")).targets.length) throw new Error("Add at least one role."); await next(); });
+    clear(body, el("div", { class: "sheet stack" }, list,
+      el("div", { class: "grid" }, field("Job titles", title, "(comma separated)"), field("Country", country), field("Level", level), field(`Pay floor (${CURRENCY[countries[0]] || "USD"})`, floor, "(optional)")),
+      el("div", { class: "row" }, add)), wizardFoot(cont));
+  },
+
+  async facts(body, next, out) {
+    const existing = (await api("GET", "/facts")).items;
+    const verified = existing.filter((f) => f.verified).length;
+    const paste = el("textarea", { rows: 10, placeholder: "Paste your resume text here: roles, bullet points, education, certifications." });
+    const cands = el("div", { class: "candidates" });
+    const split = btn("Split into statements");
+    const save = btn("Save confirmed facts", { kind: "primary" });
+    const cont = btn("Continue", { kind: "primary", icon: "arrow" });
+    const counter = el("span");
+    const updateCount = () => { counter.textContent = `${verified} confirmed so far${verified < 3 ? ", 3 needed" : ""}`; };
+    updateCount();
+    split.addEventListener("click", () => {
+      const items = splitResume(paste.value);
+      clear(cands, items.length ? items.map(candidateRow) : el("p", { class: "note", style: { padding: "12px" } }, "No statements found. Paste more text, one point per line."));
+    });
+    action(save, out, async () => {
+      const rows = [...cands.querySelectorAll(".cand")].map((n) => n.read()).filter((r) => r.keep && r.text);
+      if (!rows.length) throw new Error("Tick the statements that are true first.");
+      await api("POST", "/facts", rows.map((r) => ({ kind: r.kind, text: r.text, org: r.org || null, skills: [], startDate: r.start || null, endDate: r.end || null, verified: true })));
+      toast(`Saved ${plural(rows.length, "fact")}`);
+      await VIEWS.setup("facts");
+    });
+    action(cont, out, async () => { await loadMe(); if (!state.me.onboarding.steps.find((s) => s.id === "facts").done) throw new Error("Confirm at least three facts first."); await next(); });
+    clear(body, el("div", { class: "sheet stack" }, field("Resume text", paste), el("div", { class: "row" }, split, el("span", { class: "note" }, "Nothing is sent until you save.")), cands,
+      el("div", { class: "row" }, save)),
+      wizardFoot(cont, counter));
+  },
+
+  async languages(body, next, out) {
+    const p = await api("GET", "/profile");
+    const editor = languagesEditor(p.languages);
+    const save = btn("Save and continue", { kind: "primary", icon: "arrow" });
+    action(save, out, async () => { await api("PUT", "/languages", editor.read()); await next(); });
+    clear(body, el("div", { class: "sheet" }, editor.node), wizardFoot(save));
+  },
+
+  async answers(body, next, out) {
+    const [r, p] = await Promise.all([api("GET", "/answers"), api("GET", "/profile")]);
+    const us = p.workAuth.some((a) => a.country === "US");
+    const wanted = r.missing.filter((q) => q.key.startsWith("contact.") || (us && q.key.startsWith("us.")));
+    const rows = wanted.map((q) => answerInput(q));
+    const save = btn("Save and continue", { kind: "primary", icon: "arrow" });
+    action(save, out, async () => {
+      for (const row of rows) { const v = row.value(); if (v) await api("PUT", `/answers/${row.key}`, { answer: v, sensitive: row.sensitive }); }
+      await loadMe();
+      if (!state.me.onboarding.steps.find((s) => s.id === "answers").done) throw new Error(us ? "Fill in your name, email and the three US work questions." : "Fill in your name and email.");
+      await next();
+    });
+    clear(body, el("div", { class: "sheet" }, rows.length ? rows.map((x) => x.node) : el("p", {}, "These are all answered. You can change them any time in Settings.")),
+      wizardFoot(save, "More questions (salary, notice period, voluntary EEO) are in Settings › Answer bank."));
+  },
+
+  async network(body, next, out) {
+    const skip = el("a", { class: "btn quiet", href: "#/setup/finish" }, "Skip for now");
+    const imp = linkedinImport(async () => { await loadMe(); location.hash = "#/setup/finish"; });
+    clear(body, el("div", { class: "sheet" }, imp), wizardFoot(el("a", { class: "btn primary", href: "#/setup/finish" }, "Continue"), null, skip));
+  },
+};
+
+/** Splits pasted resume text into candidate statements. Nothing leaves the browser until saved. */
+function splitResume(text) {
+  const lines = text.split(/\r?\n/).map((l) => l.replace(/^[\s•●▪\-*–—·>]+/, "").trim()).filter((l) => l.length >= 12);
+  const seen = new Set();
+  return lines.filter((l) => !seen.has(l.toLowerCase()) && seen.add(l.toLowerCase())).slice(0, 60).map((l) => {
+    const low = l.toLowerCase();
+    const kind = /\b(b\.?s\.?|m\.?s\.?|bachelor|master|phd|university|college|degree)\b/.test(low) ? "education"
+      : /\b(certified|certification|certificate)\b/.test(low) ? "certification"
+      : /\b(engineer|manager|analyst|developer|scientist|lead|director|intern|consultant)\b.*\b(at|@|,)\b/.test(low) && l.length < 90 ? "role"
+      : /\d/.test(l) ? "achievement" : "project";
+    const years = [...l.matchAll(/\b(19|20)\d{2}\b/g)].map((m) => m[0]);
+    return { text: l, kind, start: years[0] ? `${years[0]}-01-01` : "", end: years[1] ? `${years[1]}-12-31` : "" };
+  });
+}
+function candidateRow(c) {
+  const keep = input({ type: "checkbox", "aria-label": "This is true" });
+  const text = el("textarea", { value: c.text, rows: 1, "aria-label": "Statement" });
+  const kind = select(["role", "achievement", "skill", "project", "education", "certification"].map((k) => [k, k[0].toUpperCase() + k.slice(1)]), c.kind, { "aria-label": "Kind" });
+  const org = input({ placeholder: "Company or school", "aria-label": "Company or school" });
+  const start = input({ type: "date", value: c.start, "aria-label": "From" });
+  const end = input({ type: "date", value: c.end, "aria-label": "To" });
+  const n = el("div", { class: "cand" }, keep, text, el("div", { class: "opts" }, kind, org, start, end));
+  n.read = () => ({ keep: keep.checked, text: text.value.trim(), kind: kind.value, org: org.value.trim(), start: start.value, end: end.value });
+  return n;
+}
+function answerInput(q, current = "") {
+  const yesNo = q.hint && /yes\s*\/\s*no/i.test(q.hint);
+  const control = yesNo ? select([["", "Choose…"], ["Yes", "Yes"], ["No", "No"]], current) : input({ value: current, placeholder: q.hint || "", autocomplete: q.key === "contact.email" ? "email" : q.key === "contact.full_name" ? "name" : q.key === "contact.phone" ? "tel" : "off" });
+  const node = el("div", { class: "field" }, el("label", { class: "lbl", for: (control.id = `a-${q.key.replace(/\W/g, "-")}`) }, q.label, q.sensitive ? el("div", { class: "note" }, "Copied exactly, never rewritten") : null), control, el("span"));
+  return { key: q.key, sensitive: !!q.sensitive, node, value: () => control.value.trim() };
+}
+function languagesEditor(items) {
+  const LEVELS = [["A1", "A1 beginner"], ["A2", "A2"], ["B1", "B1 intermediate"], ["B2", "B2"], ["C1", "C1 advanced"], ["C2", "C2 proficient"], ["native", "Native"]];
+  const rows = el("ul", { class: "list" });
+  const add = (l = { language: "", level: "C1" }) => {
+    const li = el("li", {}, el("div", { class: "grow", style: { maxWidth: "280px" } }, input({ value: l.language, placeholder: "Language", "aria-label": "Language" })),
+      el("div", { style: { width: "180px" } }, select(LEVELS, l.level, { "aria-label": "Level" })));
+    li.append(btn("Remove", { kind: "quiet", small: true, onclick: () => li.remove() }));
+    rows.append(li);
+  };
+  (items.length ? items : [{ language: "English", level: "C2" }]).forEach(add);
+  return {
+    node: el("div", {}, rows, el("div", { class: "row", style: { marginTop: "8px" } }, btn("Add language", { icon: "plus", small: true, onclick: () => add() }))),
+    read: () => [...rows.children].map((r) => ({ language: r.querySelector("input").value.trim(), level: r.querySelector("select").value })).filter((l) => l.language),
+  };
+}
+
+// ---------------------------------------------------------------- today
+async function windowStrip(timing) {
+  const w = timing.window;
+  const live = timing.estimates.length;
+  const label = w.start ? `${fmtDate(w.start)} – ${fmtDate(w.end)}` : "No window yet";
+  return el("div", { class: "strip", role: "region", "aria-label": "Offer window" },
+    el("span", { class: "cap" }, "Offer window", el("span", { style: { fontWeight: 600 } }, label)),
+    el("span", { class: "facts" },
+      el("span", {}, el("b", {}, live), ` live ${live === 1 ? "process" : "processes"}`),
+      w.start ? el("span", {}, el("b", {}, w.inside), " expected inside") : null,
+      timing.heldBack.length ? el("span", {}, el("b", {}, timing.heldBack.length), " dream ", timing.heldBack.length === 1 ? "role" : "roles", " held back") : null,
+      el("span", {}, w.source === "yours" ? "Window set by you" : w.source === "estimated" ? "Window estimated from live processes" : "Set a target date in Profile")),
+    el("a", { href: "#/applications" }, "See the map"));
+}
+VIEWS.today = async () => {
+  if (!state.me.onboarding.complete && !state.me.hasProfile) { location.hash = "#/setup"; return; }
+  const [q, timing, followups] = await Promise.all([api("GET", "/queue"), api("GET", "/timing"), api("GET", "/followups").catch(() => ({ items: [] }))]);
+  state.followupCount = followups.items.length; shell("today");
+  const out = el("div", { "aria-live": "polite" });
+  const list = el("ul", { class: "queue", "aria-label": "Today's queue" });
+  const build = btn(q.items.length ? "Rebuild queue" : "Build today's queue", { kind: q.items.length ? "" : "primary" });
+  action(build, out, async () => {
+    const r = await api("POST", "/queue/build");
+    await VIEWS.today();
+    clear(out, msg("go", `Queued ${r.queued}. Left out ${r.excluded}${r.heldBack ? `, held back ${r.heldBack} for your offer window` : ""}.${r.note ? ` ${r.note}` : ""}`));
+  });
+  const pending = q.items.filter((i) => i.state === "queued").length;
+  const head = pageHead("Today",
+    q.items.length ? `${plural(pending, "role")} to review. Approve what you'll apply to, ask for a referral first where you can, then open the packet.` : null,
+    el("a", { class: "btn quiet", href: "#/score" }, "Score a posting"), build);
+  const excluded = el("div");
+  render(await windowStrip(timing), head, out,
+    !state.me.onboarding.complete ? msg("hold", "Setup isn't finished, so the queue may be thin. ", el("a", { href: "#/setup" }, "Finish setup")) : null,
+    q.items.length ? list : el("div", { class: "sheet empty" }, el("h3", {}, "Nothing queued for today"),
+      el("p", { class: "note measure" }, "The queue is rebuilt every morning at 06:05 UTC from your targets, confirmed facts and the employers that sponsor. Build it now, or widen your targets in Profile."),
+      el("div", { class: "row" }, el("a", { class: "btn", href: "#/profile" }, "Edit targets"))),
+    excluded);
+  for (const item of q.items) list.append(queueRow(item));
+  const run = await api("GET", `/queue/runs/${todayIso()}`).catch(() => null);
+  if (run && run.excluded && run.excluded.length)
+    clear(excluded, el("details", { class: "sheet", style: { marginTop: "16px" } }, el("summary", {}, `Left out today: ${run.excluded.length}`),
+      el("p", { class: "note" }, "Every job the builder skipped, with the reason. Change a setting if a reason looks wrong."),
+      el("ul", { class: "list" }, run.excluded.slice(0, 200).map((x) => el("li", { class: "note" }, x.reason)))));
+};
+function payLine(item) {
+  const posted = item.pay_max || item.pay_min ? `${item.pay_min ? money(item.pay_min, item.pay_currency) + " – " : ""}${money(item.pay_max || item.pay_min, item.pay_currency)}` : null;
+  const b = item.pay_benchmark;
+  const bench = b ? `${b.scope === "company" ? "Filed" : "Market"} median ${money(b.p50, b.currency)} (${plural(b.n, "filing")})` : null;
+  return [posted, bench].filter(Boolean).join(" · ");
+}
+function queueRow(item) {
+  const drawer = el("div", { class: "drawer" });
+  const tags = [];
+  if (item.integrity === "alarm") tags.push(el("span", { class: "tag stop" }, icon("alert"), "Hidden text in posting"));
+  if (item.gate_verdict === "FLAG") tags.push(el("span", { class: "tag hold" }, "Check requirements"));
+  if (item.referral_name) tags.push(el("span", { class: "tag go" }, icon("user"), `Referral asked: ${item.referral_name}`));
+  else if (item.contacts) tags.push(el("span", { class: "tag" }, icon("user"), `${plural(item.contacts, "contact")} there`));
+  if (item.state !== "queued") tags.push(stateTag(item.state));
+  const li = el("li", { class: "qrow" });
+  const acts = el("div", { class: "acts" });
+  const draw = () => {
+    acts.replaceChildren();
+    if (item.contacts && !item.referral_name) acts.append(btn("Referrals", { small: true, onclick: () => showReferrals(item, drawer) }));
+    if (item.state === "queued") {
+      const ap = btn("Approve", { kind: "primary", small: true, icon: "check" });
+      action(ap, drawer, async () => { await moveTo(item.id, "approved"); item.state = "approved"; li.replaceWith(queueRow(item)); });
+      const sk = btn("Skip", { small: true, kind: "quiet" });
+      action(sk, drawer, async () => { await moveTo(item.id, "skipped"); li.classList.add("done"); acts.replaceChildren(el("span", { class: "note" }, "Skipped")); });
+      acts.append(el("a", { class: "btn small", href: `#/packet/${item.job_id}` }, "Packet"), sk, ap);
+    } else acts.append(el("a", { class: "btn small primary", href: `#/packet/${item.job_id}` }, "Open packet", icon("arrow")));
+  };
+  draw();
+  append(li, [
+    el("div", { class: "fit", title: "Fit score out of 100, from your confirmed facts" }, item.fit_score ?? "–", el("small", {}, "fit")),
+    el("div", {}, el("h3", {}, coName(item.company_id, item.company), el("span", { class: "title" }, item.title)),
+      el("div", { class: "meta" }, [item.location_text, item.remote_type, payLine(item)].filter(Boolean).join(" · ")),
+      tags.length ? el("div", { class: "tags" }, tags) : null,
+      item.notes ? el("p", { class: "note" }, item.notes) : null),
+    acts, drawer]);
+  return li;
+}
+async function showReferrals(item, box) {
+  clear(box, loading());
+  try {
+    const r = await api("GET", `/referrals/${item.job_id}`);
+    const out = el("div");
+    clear(box, el("div", { style: { marginTop: "12px" } }, out, r.items.length ? r.items.map((p) => {
+      const asked = btn("I asked", { kind: "primary", small: true, icon: "check" });
+      action(asked, out, async () => { await api("POST", `/applications/${item.id}/referral`, { contactId: p.id }); toast("Ask recorded"); item.referral_name = p.full_name; box.closest(".qrow").replaceWith(queueRow(item)); });
+      return el("div", { class: "person" },
+        el("div", {}, el("strong", {}, p.full_name), el("div", { class: "note" }, [p.position, p.messages_count ? plural(p.messages_count, "message") : null, p.last_ask_at ? `asked ${fmtDay(p.last_ask_at)}` : null].filter(Boolean).join(" · "))),
+        el("div", { class: "acts" },
+          p.profile_url ? el("a", { class: "btn small", href: p.profile_url, target: "_blank", rel: "noopener noreferrer" }, "Open LinkedIn", icon("out")) : null,
+          btn("Copy message", { small: true, icon: "copy", onclick: () => copy(p.draft) }), asked),
+        el("pre", { class: "draft" }, p.draft));
+    }) : el("p", { class: "note" }, "No contacts here yet.")));
+  } catch (e) { clear(box, msg("stop", e.message)); }
+}
+
+// ---------------------------------------------------------------- applications: the map and the table
+function basisOf(timing) {
+  const v = Object.values(timing.basis || {});
+  return v.length && v.every((x) => x === "yours") ? "yours" : v.some((x) => x === "yours") ? "mixed" : "default";
+}
+const ACTIVE = ["submitted", "screen", "interview", "offer"];
+const PREP = ["queued", "approved", "ready_for_review", "failed"];
+const CLOSED = ["rejected", "withdrawn", "skipped"];
+const STAGE_DEPTH = { submitted: 1, screen: 2, interview: 3, offer: 4 };
+
+function transitMap(apps, timing) {
+  const etaBy = new Map(timing.estimates.map((e) => [e.appId, e.expectedOffer]));
+  const live = apps.filter((a) => ACTIVE.includes(a.state))
+    .sort((a, b) => STAGE_DEPTH[b.state] - STAGE_DEPTH[a.state] || String(etaBy.get(a.id) || "").localeCompare(String(etaBy.get(b.id) || "")));
+  // Six lines at most: live processes first, with up to two kept for held-back dream roles.
+  const held = timing.heldBack.slice(0, Math.min(2, Math.max(0, 6 - Math.min(live.length, 4))));
+  const shown = live.slice(0, 6 - held.length);
+  // Narrow screens stack each company's name above its line instead of beside it.
+  const compact = window.matchMedia("(max-width: 640px)").matches;
+  const W = compact ? 340 : 1000, LEFT = compact ? 6 : 210;
+  const COLS = compact ? [{ x: 40, label: "Sent" }, { x: 125, label: "Screen" }, { x: 210, label: "Interview" }] : [{ x: 300, label: "Submitted" }, { x: 470, label: "Screen" }, { x: 640, label: "Interview" }];
+  const CAPX = compact ? 296 : 880, CAPW = compact ? 34 : 46, ROW = compact ? 60 : 48, TOP = compact ? 50 : 44;
+  const n = shown.length + held.length;
+  const H = TOP + Math.max(n, 1) * ROW + 34;
+  const s = svg("svg", { class: "transit", viewBox: `0 0 ${W} ${H}`, role: "img", "aria-labelledby": "transit-title transit-desc" });
+  const w = timing.window;
+  const winText = w.start ? `${fmtDate(w.start)} – ${fmtDate(w.end)}` : "not set";
+  s.append(svg("title", { id: "transit-title" }, "Live applications converging on the offer window"),
+    svg("desc", { id: "transit-desc" }, `${plural(shown.length, "live process", "live processes")} shown, ${held.length} held back. Offer window ${winText}. The table below lists every application.`));
+  for (const c of COLS) {
+    s.append(svg("text", { class: "col", x: c.x, y: 18, "text-anchor": "middle" }, c.label));
+    s.append(svg("line", { class: "guide", x1: c.x, x2: c.x, y1: 28, y2: H - 26 }));
+  }
+  s.append(svg("text", { class: "col", x: compact ? CAPX + CAPW : CAPX + CAPW / 2, y: 18, "text-anchor": compact ? "end" : "middle" }, compact ? "Offers" : "Offer window"));
+  if (compact) s.classList.add("compact");
+  const capTop = TOP - 18, capH = Math.max(n, 1) * ROW + 4;
+  s.append(svg("rect", { x: CAPX, y: capTop, width: CAPW, height: capH, rx: CAPW / 2, fill: "var(--interchange)", stroke: "var(--ground)", "stroke-width": 3 }));
+  s.append(svg("text", { class: "cap-date", x: compact ? CAPX + CAPW : CAPX + CAPW / 2, y: capTop + capH + 18, "text-anchor": compact ? "end" : "middle" }, winText));
+
+  shown.forEach((a, i) => {
+    const y = TOP + i * ROW + ROW / 2 - 14 + (compact ? 10 : 0);
+    const colour = lineColour(a.company_id);
+    const depth = STAGE_DEPTH[a.state];
+    const endX = depth >= 4 ? CAPX + 6 : COLS[depth - 1].x;
+    const g = svg("g", { style: `--delay:${i * 70}ms` });
+    const solid = svg("path", { class: "line-solid", d: `M${LEFT} ${y} H${endX}`, stroke: colour, style: `--len:${endX - LEFT}` });
+    const eta = etaBy.get(a.id);
+    // Only offers expected inside the window join the interchange; early or late ones stop short of it.
+    const off = depth < 4 && eta && w.start ? (eta < w.start ? "early" : eta > w.end ? "late" : null) : null;
+    const stopX = off ? CAPX - (compact ? 30 : 56) : CAPX;
+    if (depth < 4) g.append(svg("path", { class: "line-ahead", d: `M${endX} ${y} H${stopX}`, stroke: colour }));
+    if (off) g.append(svg("path", { d: `M${stopX} ${y - 8} V${y + 8}`, stroke: colour, "stroke-width": 4, "stroke-linecap": "round" }));
+    g.append(solid);
+    COLS.forEach((c, k) => {
+      const reached = k < depth;
+      g.append(svg("circle", { cx: c.x, cy: y, r: k === depth - 1 && depth < 4 ? 9 : 7, fill: reached ? colour : "var(--sheet)", stroke: colour, "stroke-width": 4 }));
+    });
+    const etaText = depth >= 4 ? "Offer" : eta ? `≈ ${fmtDate(eta)}${off ? `, ${off}` : ""}` : null;
+    if (etaText) g.append(svg("text", { class: `eta ${off ? "off" : ""}`, x: (off ? stopX : CAPX) - 8, y: compact ? y - 16 : y - 9, "text-anchor": "end" }, etaText));
+    const link = compact
+      ? svg("a", { href: `#/packet/${a.job_id}` }, svg("text", { class: "name", x: 0, y: y - 16 }, short(a.company, 20)))
+      : svg("a", { href: `#/packet/${a.job_id}` },
+        svg("text", { class: "name", x: 0, y: y - 2 }, short(a.company, 22)),
+        svg("text", { class: "sub", x: 0, y: y + 14 }, `${short(a.title, 24)} · ${STATE_LABEL[a.state].toLowerCase()}`));
+    g.prepend(link);
+    s.append(g);
+  });
+  held.forEach((h, j) => {
+    const y = TOP + (shown.length + j) * ROW + ROW / 2 - 14 + (compact ? 10 : 0);
+    const colour = lineColour(h.companyId);
+    s.append(svg("g", {},
+      svg("text", { class: "name", x: 0, y: compact ? y - 16 : y - 2 }, short(h.company || "Dream role", 22)),
+      svg("text", { class: "sub", x: compact ? CAPX - 8 : 0, y: compact ? y - 16 : y + 14, "text-anchor": compact ? "end" : null }, `held until ${fmtDate(h.releaseOn)}`),
+      svg("path", { class: "line-held", d: `M${LEFT} ${y} H${CAPX}`, stroke: colour })));
+  });
+  if (!n) {
+    s.append(svg("text", { class: "sub", x: LEFT, y: TOP + 6 }, compact ? "No live processes yet." : "No live processes yet. Mark an application submitted and it joins the map."));
+    s.append(svg("path", { class: "line-ahead", d: `M${LEFT} ${TOP + 20} H${CAPX}`, stroke: "var(--rule-strong)" }));
+  }
+  if (live.length + timing.heldBack.length > shown.length + held.length) s.setAttribute("data-more", String(live.length - shown.length));
+  return { node: s, hidden: live.length - shown.length };
+}
+function legendSwatch(kind) {
+  const s = svg("svg", { width: 34, height: 12, "aria-hidden": "true" });
+  if (kind === "done") s.append(svg("path", { d: "M2 6 H24", stroke: "var(--ink)", "stroke-width": 5, "stroke-linecap": "round" }), svg("circle", { cx: 26, cy: 6, r: 4, fill: "var(--ink)" }));
+  if (kind === "ahead") s.append(svg("path", { d: "M2 6 H32", stroke: "var(--ink)", "stroke-width": 3, "stroke-linecap": "round", "stroke-dasharray": "1 6" }));
+  if (kind === "short") s.append(svg("path", { d: "M2 6 H24", stroke: "var(--ink)", "stroke-width": 3, "stroke-dasharray": "1 6", "stroke-linecap": "round" }), svg("path", { d: "M27 1 V11", stroke: "var(--ink)", "stroke-width": 3, "stroke-linecap": "round" }));
+  if (kind === "held") s.append(svg("path", { d: "M2 6 H32", stroke: "var(--ink)", "stroke-width": 3, "stroke-dasharray": "8 5" }));
+  return s;
+}
+
+VIEWS.applications = async () => {
+  const [r, timing] = await Promise.all([api("GET", "/applications"), api("GET", "/timing")]);
+  const apps = r.items;
+  assignLines([...apps.map((a) => a.company_id), ...timing.heldBack.map((h) => h.companyId)], [...apps.filter((a) => ACTIVE.includes(a.state)).map((a) => a.company_id), ...timing.heldBack.map((h) => h.companyId)]);
+  const etaBy = new Map(timing.estimates.map((e) => [e.appId, e.expectedOffer]));
+  const map = transitMap(apps, timing);
+  if (!sessionStorage.getItem("mca_drawn")) { map.node.classList.add("draw"); try { sessionStorage.setItem("mca_drawn", "1"); } catch {} }
+  const basis = { yours: "from your own stage history", mixed: "partly from your own history, partly from typical stage times", default: "from typical stage times until you have your own" }[basisOf(timing)];
+
+  // filters
+  const groups = [["active", "Active", ACTIVE], ["prep", "In prep", PREP], ["closed", "Closed", CLOSED], ["all", "All", null]];
+  const ui = { group: apps.some((a) => ACTIVE.includes(a.state)) ? "active" : "all", q: "", sort: "activity", dir: -1 };
+  const chips = el("div", { class: "chips", role: "group", "aria-label": "Filter by stage" });
+  const searchBox = input({ type: "search", placeholder: "Company, role or note", "aria-label": "Search applications" });
+  searchBox.addEventListener("input", () => { ui.q = searchBox.value.trim().toLowerCase(); draw(); });
+  const tbody = el("tbody");
+  const out = el("div", { "aria-live": "polite" });
+  const cols = [["company", "Company"], ["stage", "Stage"], ["submitted", "Submitted", "num"], ["activity", "Last activity", "num"], ["eta", "Expected offer", "num"], [null, "Referral"], [null, "Notes"], [null, "Move"]];
+  const thead = el("tr");
+  const sortVal = {
+    company: (a) => String(a.company).toLowerCase(),
+    stage: (a) => STAGE_ORDER.indexOf(a.state),
+    submitted: (a) => a.submitted_at || "",
+    activity: (a) => a.last_event_at || "",
+    eta: (a) => etaBy.get(a.id) || "9999",
+  };
+  const drawHead = () => clear(thead, cols.map(([key, label, cls]) => el("th", { class: cls || null, scope: "col", "aria-sort": key && ui.sort === key ? (ui.dir > 0 ? "ascending" : "descending") : null },
+    key ? el("button", { type: "button", onclick: () => { ui.dir = ui.sort === key ? -ui.dir : key === "company" || key === "eta" ? 1 : -1; ui.sort = key; draw(); } }, label) : label)));
+  function draw() {
+    drawHead();
+    clear(chips, groups.map(([id, label, states]) => {
+      const n = states ? apps.filter((a) => states.includes(a.state)).length : apps.length;
+      return el("button", { type: "button", class: "chip", "aria-pressed": String(ui.group === id), onclick: () => { ui.group = id; draw(); } }, label, el("span", { class: "n" }, n));
+    }));
+    const states = groups.find((g) => g[0] === ui.group)[2];
+    const rows = apps.filter((a) => (!states || states.includes(a.state)) &&
+      (!ui.q || [a.company, a.title, a.notes, a.referral_name].some((v) => v && String(v).toLowerCase().includes(ui.q))))
+      .sort((a, b) => { const x = sortVal[ui.sort](a), y = sortVal[ui.sort](b); return (x < y ? -1 : x > y ? 1 : 0) * ui.dir; });
+    clear(tbody, rows.length ? rows.map((a) => appRow(a, etaBy, out)) : el("tr", {}, el("td", { colspan: cols.length },
+      el("div", { class: "empty" }, el("h3", {}, apps.length ? "No applications match" : "No applications yet"),
+        el("p", { class: "note" }, apps.length ? "Try another stage or clear the search." : "Approve roles on Today and they appear here, with every move logged.")))));
+  }
+  draw();
+  render(pageHead("Applications", `Live processes converge on your offer window. Expected dates come ${basis}.`),
+    el("div", { class: "transit-wrap" }, map.node,
+      el("div", { class: "transit-legend" },
+        el("span", {}, legendSwatch("done"), "Stages reached"), el("span", {}, legendSwatch("ahead"), "Still ahead"), el("span", {}, legendSwatch("held"), "Held back for timing"), el("span", {}, legendSwatch("short"), "Offer expected outside the window"),
+        el("span", { class: "end" }, map.hidden > 0 ? `${map.hidden} more live in the table` : `Stage times: ${timing.stageDays.toScreen} / ${timing.stageDays.screenToInterview} / ${timing.stageDays.interviewToOffer} days`))),
+    el("h2", {}, "All applications"),
+    el("div", { class: "filters" }, el("div", { class: "search" }, icon("search"), searchBox), chips), out,
+    el("div", { class: "tablebox" }, el("table", { class: "responsive" }, el("thead", {}, thead), tbody)));
+};
+function appRow(a, etaBy, out) {
+  const tr = el("tr");
+  const note = el("textarea", { class: "note-edit", rows: 1, value: a.notes || "", placeholder: "Add a note", "aria-label": `Note for ${a.company}`, maxlength: 2000 });
+  note.addEventListener("blur", async () => {
+    if ((a.notes || "") === note.value.trim()) return;
+    try { await api("PATCH", `/applications/${a.id}/notes`, { notes: note.value }); a.notes = note.value.trim(); toast("Note saved"); }
+    catch (e) { clear(out, msg("stop", e.message)); }
+  });
+  const moves = (NEXT[a.state] || []).filter((s) => s !== "submitted" && s !== a.state);
+  const mover = moves.length ? select([["", "Move to…"], ...moves.map((s) => [s, STATE_LABEL[s]])], "", { "aria-label": `Move ${a.company} to` }) : null;
+  if (mover) mover.addEventListener("change", async () => {
+    if (!mover.value) return;
+    try { await moveTo(a.id, mover.value); a.state = mover.value; a.last_event_at = new Date().toISOString(); tr.replaceWith(appRow(a, etaBy, out)); }
+    catch (e) { clear(out, msg("stop", e.message)); mover.value = ""; }
+  });
+  const hist = btn("History", { kind: "quiet", small: true });
+  let open = null;
+  hist.setAttribute("aria-expanded", "false");
+  hist.addEventListener("click", async () => {
+    if (open) { open.remove(); open = null; hist.setAttribute("aria-expanded", "false"); return; }
+    open = el("tr", { class: "history" }, el("td", { colspan: 8 }, loading()));
+    tr.after(open); hist.setAttribute("aria-expanded", "true");
+    try { const ev = await api("GET", `/applications/${a.id}/events`); clear(open.firstChild, timeline(ev.items)); }
+    catch (e) { clear(open.firstChild, msg("stop", e.message)); }
+  });
+  append(tr, [
+    el("td", { "data-label": "Company" }, el("a", { href: `#/packet/${a.job_id}`, class: "co" }, bullet(a.company_id, ACTIVE.includes(a.state)), a.company), el("div", { class: "title" }, a.title)),
+    el("td", { "data-label": "Stage" }, stateTag(a.state)),
+    el("td", { class: "num m-hide", "data-label": "Submitted" }, a.submitted_at ? fmtDate(a.submitted_at) : a.planned_date ? el("span", { class: "note" }, `planned ${fmtDate(a.planned_date)}`) : ""),
+    el("td", { class: "num m-hide", "data-label": "Last activity" }, a.last_event_at ? fmtDate(a.last_event_at) : ""),
+    el("td", { class: "num", "data-label": "Expected offer" }, etaBy.get(a.id) ? `≈ ${fmtDate(etaBy.get(a.id))}` : ""),
+    el("td", { class: a.referral_name ? null : "m-hide", "data-label": "Referral" }, a.referral_name || el("span", { class: "note" }, "–")),
+    el("td", { class: "notes", "data-label": a.notes ? "Notes" : null }, note),
+    el("td", { "data-label": "Move" }, el("div", { class: "move" }, mover, hist)),
+  ]);
+  return tr;
+}
+function timeline(items) {
+  if (!items.length) return el("p", { class: "note" }, "No history yet.");
+  const describe = (e) => {
+    const p = e.payload || {};
+    if (e.kind === "state_change") return `${STATE_LABEL[p.from] || p.from || "New"} → ${STATE_LABEL[p.to] || p.to}${p.via === "email" ? " (from an email)" : ""}${p.note ? `: ${p.note}` : ""}`;
+    if (e.kind === "employer_reply") return `Email from the employer: ${p.classification || "reply"}${p.subject ? ` “${short(p.subject, 70)}”` : ""}`;
+    if (e.kind === "followup_sent") return "You sent a follow-up";
+    if (e.kind === "thank_you_sent") return "You sent a thank-you";
+    if (e.kind === "referral_asked") return `You asked ${p.name || "a contact"} for a referral`;
+    return e.kind.replace(/_/g, " ");
+  };
+  return el("ol", { class: "timeline" }, items.map((e) => el("li", {}, el("time", { datetime: e.created_at }, fmtDate(e.created_at, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })), el("span", {}, describe(e)))));
+}
+
+// ---------------------------------------------------------------- packet
+VIEWS.packet = async (jobId) => {
+  const [p, facts] = await Promise.all([api("GET", `/packets/${jobId}`), api("GET", "/facts")]);
+  if (state.aiKey === undefined) state.aiKey = await api("GET", "/ai/key").then((r) => r.key).catch(() => null);
+  const a = p.application;
+  const out = el("div", { "aria-live": "polite" });
+  const b = p.payBenchmark;
+  const meta = [p.job.location_text, p.job.remote_type, a && STATE_LABEL[a.state]].filter(Boolean).join(" · ");
+  const head = el("div", { class: "page-head" },
+    el("div", { class: "grow" }, el("h1", { class: "co-head" }, bullet(p.job.company_id || p.job.company), el("span", {}, p.job.title, el("span", { class: "at" }, ` at ${p.job.company}`))),
+      el("p", { class: "lede" }, meta, b ? ` · ${b.scope === "company" ? "This employer's filed" : "Market"} median ${money(b.p50, b.currency)}, middle half ${money(b.p25, b.currency)}–${money(b.p75, b.currency)} (${plural(b.n, "filing")})` : "")),
+    p.job.apply_url ? el("a", { class: "btn primary", href: p.job.apply_url, target: "_blank", rel: "noopener noreferrer" }, "Open application form", icon("out")) : null);
+  const status = p.ready ? msg("go", "Packet ready. Fill in the form, review it, and submit it yourself.")
+    : msg("hold", el("strong", {}, "Not ready yet"), el("ul", {}, p.blockers.map((x) => el("li", {}, x))));
+  const integrity = p.job.integrity && p.job.integrity.level === "alarm"
+    ? msg("stop", `This posting contains hidden or instruction-like text (${p.job.integrity.verdict}). Don't paste it into an AI tool.`) : null;
+
+  const resume = el("section", { class: "sheet", "aria-labelledby": "h-resume" });
+  resumeSheet(resume, p);
+  const fields = el("section", { class: "sheet", "aria-labelledby": "h-fields" },
+    el("div", { class: "sheet-head" }, el("h2", { id: "h-fields" }, "Copy into the form"), el("span", { class: "note" }, "Sensitive answers are copied exactly.")),
+    p.fields.length ? p.fields.map((f) => el("div", { class: "field" }, el("div", { class: "lbl" }, f.label, f.sensitive ? el("div", { class: "note" }, "Copy exactly") : null), el("div", { class: "val" }, f.value),
+      btn("Copy", { small: true, icon: "copy", aria: `Copy ${f.label}`, onclick: () => copy(f.value) })))
+      : el("p", { class: "note" }, "Your answer bank is empty. ", el("a", { href: "#/settings/answers" }, "Add answers"), " once and every packet uses them."),
+    a && a.referral_name ? el("div", { class: "field" }, el("div", { class: "lbl" }, "Referred by"), el("div", { class: "val" }, a.referral_name), btn("Copy", { small: true, icon: "copy", onclick: () => copy(a.referral_name) })) : null);
+  const editor = answersEditor(a, p.answers, facts.items, p.job);
+  const gateNotes = a && a.gates ? a.gates.flatMap((g) => g.notes.map((n) => `${g.gate}: ${n}`)) : [];
+  const gates = gateNotes.length ? el("details", { class: "sheet" }, el("summary", {}, `Requirement notes (${gateNotes.length})`), el("ul", { class: "list" }, gateNotes.map((n) => el("li", { class: "note" }, n)))) : null;
+
+  const actions = el("div", { class: "row" });
+  if (a) {
+    for (const s of (NEXT[a.state] || []).filter((x) => ["approved", "submitted", "failed", "skipped"].includes(x))) {
+      if (s === "submitted") actions.append(confirmBtn("I submitted it", "Confirm: answers freeze after this", out, async () => { await moveTo(a.id, "submitted"); route(); }, "primary"));
+      else { const x = btn({ approved: "Approve", failed: "Couldn't apply", skipped: "Skip" }[s]); action(x, out, async () => { await moveTo(a.id, s); route(); }); actions.append(x); }
+    }
+  }
+  render(head, integrity, status, out,
+    el("div", { class: "stack" }, resume, fields, editor, gates),
+    el("h2", {}, "Status"),
+    a ? el("div", { class: "sheet" }, el("p", { style: { marginTop: 0 } }, "Now: ", stateTag(a.state)), actions.children.length ? actions : el("p", { class: "note" }, "Track later stages from Applications.")) : el("p", { class: "note" }, "This job isn't in your queue."));
+};
+function issueText(i) {
+  const after = i.detail.includes(": ") ? i.detail.slice(i.detail.indexOf(": ") + 2) : "";
+  if (i.code === "keyword_gap") return after ? `The posting asks for \u201c${after}\u201d, which no confirmed fact mentions. Add a fact if it's true.` : "The posting names skills no confirmed fact mentions.";
+  if (i.code === "too_short") return "The resume is short for this role. Confirm more facts on your Profile to fill it out.";
+  if (i.code === "missing_required") return after ? `Tracking systems may not find \u201c${after}\u201d in the PDF. Check it in the Word file.` : "Some required details may not be readable in the PDF. Check the Word file.";
+  if (i.code === "no_phone") return "No phone number. Add one in Settings \u203a Answer bank.";
+  return i.detail;
+}
+async function resumeSheet(box, p) {
+  const out = el("div");
+  const files = el("div", { class: "files" });
+  const dl = (fmt, label) => { const x = btn(label, { icon: "down" }); action(x, out, () => download(p.resume[fmt], `Resume.${fmt}`)); return x; };
+  clear(box, el("div", { class: "sheet-head" }, el("h2", { id: "h-resume" }, "Resume for this job"), el("span", { class: "note" }, "Built only from facts you've confirmed")), files, out, loading());
+  try {
+    const r = await api("GET", p.resume.check.replace(/^\/api/, ""));
+    const c = r.check;
+    files.append(dl("pdf", "PDF"), dl("docx", "Word"));
+    box.lastChild.replaceWith(el("div", {},
+      el("p", { class: "note" }, `${plural(r.resume.factIds.length, "confirmed fact")} used, ${plural(r.pages, "page")}`, c.keywordCoverage !== null ? `, covers ${Math.round(c.keywordCoverage * 100)}% of the posting's keywords` : "", "."),
+      el("ul", { class: "issues" },
+        c.issues.length ? c.issues.map((i) => el("li", {}, icon(i.severity === "error" ? "stop" : "alert"), el("span", {}, issueText(i))))
+          : el("li", {}, icon("check"), el("span", {}, "Applicant tracking systems can read every line."))),
+      r.warning ? msg("hold", r.warning) : null));
+  } catch (e) {
+    box.lastChild.replaceWith(e.status === 409 ? msg("hold", e.message, " ", el("a", { href: e.message.includes("name") ? "#/settings/answers" : "#/profile" }, "Fix it")) : msg("stop", e.message));
+  }
+}
+function answersEditor(app, existing, facts, job) {
+  const verified = facts.filter((f) => f.verified);
+  const box = el("section", { class: "sheet", "aria-labelledby": "h-answers" });
+  const list = el("div");
+  const out = el("div", { "aria-live": "polite" });
+  const rows = [];
+  const editable = app && ["queued", "approved", "ready_for_review", "failed"].includes(app.state);
+  function addRow(a = { label: "", kind: "short_answer", text: "", shortText: "", citedFactIds: [], maxChars: "" }) {
+    const label = input({ value: a.label, placeholder: "Why do you want to work here?" });
+    const kind = select([["short_answer", "Short answer"], ["motivation", "Motivation"], ["self_intro", "About you"], ["project", "A project"], ["other", "Other"]], a.kind);
+    const max = input({ type: "number", min: 1, value: a.maxChars || "", inputmode: "numeric" });
+    const text = el("textarea", { value: a.text, placeholder: "Your answer. Every number must come from a fact you cite below." });
+    const shortT = el("textarea", { value: a.shortText || "", rows: 2, placeholder: "A shorter version, for forms with tight limits" });
+    const count = el("span", { class: "counter", "aria-live": "polite" });
+    const recount = () => { const n = [...text.value].length; const lim = Number(max.value) || 0; count.textContent = lim ? `${n} / ${lim} characters` : `${n} characters`; count.classList.toggle("over", !!lim && n > lim); };
+    text.addEventListener("input", recount); max.addEventListener("input", recount); recount();
+    const cites = el("div", { class: "facts-pick" }, verified.map((f) => el("label", { class: "check" }, input({ type: "checkbox", value: f.id, checked: a.citedFactIds.includes(f.id) }), el("span", {}, short(f.text, 110)))));
+    const result = el("div");
+    const node = el("div", { class: "answer" });
+    const draftBtn = state.aiKey && editable ? btn("Draft with my AI", { small: true, icon: "spark" }) : null;
+    if (draftBtn) action(draftBtn, result, async () => {
+      if (!label.value.trim()) throw new Error("Type the question first.");
+      const r = await api("POST", "/ai/draft", { jobId: job.id, question: label.value.trim(), kind: kind.value, maxChars: max.value ? Number(max.value) : undefined });
+      text.value = r.answer.text; shortT.value = r.answer.shortText || ""; recount();
+      for (const cb of cites.querySelectorAll("input")) cb.checked = r.answer.citedFactIds.includes(cb.value);
+      clear(result, msg("info", `Drafted by ${r.model}. Read it and make it yours before saving.`), r.postingWarning ? msg("stop", `The posting has hidden text: ${r.postingWarning}`) : null);
+      showReview(row, r.review);
+    });
+    const row = { get: () => ({ label: label.value.trim(), kind: kind.value, text: text.value, shortText: shortT.value.trim() || undefined,
+      citedFactIds: [...cites.querySelectorAll("input:checked")].map((i) => i.value), maxChars: max.value ? Number(max.value) : undefined }), result };
+    append(node, [
+      el("div", { class: "grid", style: { gridTemplateColumns: "minmax(0,2fr) minmax(140px,1fr) 130px" } }, field("Question", label), field("Kind", kind), field("Limit", max, "(chars)")),
+      el("div", { style: { marginTop: "12px" } }, el("div", { class: "row" }, el("label", { for: (text.id = `t${Math.random().toString(36).slice(2)}`), class: "grow", style: { margin: 0 } }, "Answer"), count), text),
+      el("div", { style: { marginTop: "12px" } }, field("Short version", shortT, "(optional)")),
+      el("div", { style: { marginTop: "12px" } }, el("div", { class: "label" }, "Facts this answer relies on"), verified.length ? cites : el("p", { class: "note" }, "Confirm facts on your Profile to cite them.")),
+      editable ? el("div", { class: "row", style: { marginTop: "10px" } }, draftBtn, btn("Remove", { kind: "quiet", small: true, onclick: () => { node.remove(); rows.splice(rows.indexOf(row), 1); } })) : null,
+      result]);
+    if (!editable) node.querySelectorAll("input,textarea,select").forEach((x) => (x.disabled = true));
+    rows.push(row);
+    list.append(node);
+    return row;
+  }
+  function showReview(row, r) {
+    const problems = [...r.full.problems, ...(r.short ? r.short.problems.map((p) => `Short version: ${p}`) : []),
+      ...(r.shortVariantMissing ? ["Add a short version for forms with tight limits."] : []),
+      ...r.grounding.unsupportedFigures.map((f) => `“${f}” isn't in any cited, confirmed fact.`),
+      ...(r.grounding.badCitations.length ? ["A cited fact isn't confirmed."] : [])];
+    row.result.append(problems.length ? el("ul", { class: "issues" }, problems.map((p) => el("li", {}, icon("alert"), el("span", {}, p)))) : el("ul", { class: "issues" }, el("li", {}, icon("check"), el("span", {}, `Passes the checks. ${r.full.words} words.`))));
+  }
+  const collect = () => rows.map((r) => r.get()).filter((a) => a.label && a.text.trim());
+  const check = btn("Check");
+  action(check, out, async () => { const r = await api("POST", "/answers/review", collect()); rows.forEach((row) => row.result.replaceChildren()); r.items.forEach((x, i) => showReview(rows[i], x)); });
+  const save = btn("Save answers", { kind: "primary" });
+  action(save, out, async () => { const r = await api("PUT", `/applications/${app.id}/answers`, collect()); rows.forEach((row) => row.result.replaceChildren()); r.items.forEach((x, i) => showReview(rows[i], x)); toast("Saved"); });
+  append(box, [
+    el("div", { class: "sheet-head" }, el("h2", { id: "h-answers" }, "Free-text answers"), el("span", { class: "note" }, "Counted the way forms count them")),
+    el("p", { class: "note measure", style: { marginTop: 0 } }, state.aiKey ? "Write them yourself or draft with your own AI key, then check them here." : "Write them yourself or with any AI you use, then check them here. To draft in the app, add your own AI key in Settings."),
+    list,
+    editable ? el("div", { class: "row", style: { marginTop: "16px" } }, btn("Add question", { icon: "plus", onclick: () => addRow() }), check, save) : el("p", { class: "note" }, app ? "Answers are frozen once you've submitted." : ""),
+    out]);
+  for (const a of existing) addRow(a);
+  if (!existing.length && editable) addRow();
+  existing.forEach((a, i) => a.review && showReview(rows[i], a.review));
+  return box;
+}
+
+// ---------------------------------------------------------------- follow-ups
+VIEWS.followups = async () => {
+  const [f, inbound] = await Promise.all([api("GET", "/followups"), api("GET", "/inbound").catch((e) => (e.status === 409 ? null : Promise.reject(e)))]);
+  state.followupCount = f.items.filter((x) => x.kind !== "consider_closing").length; shell("followups");
+  const out = el("div", { "aria-live": "polite" });
+  const items = f.items.map((it) => {
+    const node = el("li", { class: "person" });
+    const head = el("div", {}, el("h3", {}, coName(it.companyId, it.company), " ", el("span", { style: { fontWeight: 500 } }, it.title)),
+      el("div", { class: "note" }, it.kind === "thank_you" ? `Interview ${fmtDay(it.interviewAt)}: send a thank-you within a day.` : it.kind === "follow_up" ? `${it.daysQuiet} days without a reply${it.sent ? `, ${plural(it.sent, "follow-up")} sent` : ""}.` : it.note));
+    if (it.kind === "consider_closing") {
+      const close = btn("Close it", { small: true });
+      action(close, out, async () => { await moveTo(it.appId, "withdrawn", "Closed after no reply"); node.remove(); });
+      append(node, [head, el("div", { class: "acts" }, close)]);
+      return node;
+    }
+    const sent = btn("Mark sent", { kind: "primary", small: true, icon: "check" });
+    action(sent, out, async () => { await api("POST", `/followups/${it.appId}/sent`, { kind: it.kind }); toast("Logged"); node.remove(); state.followupCount--; shell("followups"); });
+    const text = (it.draft.subject ? `Subject: ${it.draft.subject}\n\n` : "") + it.draft.body;
+    append(node, [head, el("div", { class: "acts" }, btn("Copy draft", { small: true, icon: "copy", onclick: () => copy(text) }), sent),
+      el("pre", { class: "draft" }, text),
+      it.draft.warnings.length ? el("ul", { class: "issues", style: { gridColumn: "1 / -1" } }, it.draft.warnings.map((w) => el("li", {}, icon("alert"), el("span", {}, w)))) : null]);
+    return node;
+  });
+  render(pageHead("Follow-ups", "Drafts use only what you already sent the employer. Send them from your own email, then mark them sent."),
+    out,
+    el("section", { class: "sheet" }, el("div", { class: "sheet-head" }, el("h2", {}, "Due now"), el("span", { class: "note" }, "At most two follow-ups per application")),
+      items.length ? el("ul", { class: "list" }, items) : el("div", { class: "empty", style: { padding: "8px 0" } }, el("h3", {}, "Nothing due"),
+        el("p", { class: "note measure" }, "A follow-up comes due after 10 quiet days, and a thank-you the day you move an application to Interview."))),
+    inboundSheet(inbound));
+};
+function inboundBody(inbound) {
+  if (!inbound) return [el("p", { class: "note" }, "Finish setup to get your forwarding address.")];
+  const recent = inbound.recent || [];
+  return [
+    inbound.address ? el("div", { class: "stack" },
+      el("p", { class: "note measure", style: { marginTop: 0 } }, "Set a filter in your email to forward messages from employers and applicant tracking systems to this address. Confirmations, interview invitations and rejections move the application automatically; everything else is logged."),
+      el("div", { class: "secret" }, el("span", {}, inbound.address), btn("Copy", { small: true, icon: "copy", onclick: () => copy(inbound.address) })))
+      : msg("info", "Email forwarding isn't switched on for this server yet. Until it is, update stages from Applications."),
+    recent.length ? el("div", { class: "tablebox", style: { marginTop: "16px" } }, el("table", { class: "responsive" },
+      el("thead", {}, el("tr", {}, ["Received", "From", "Subject", "Read as", "Result"].map((h) => el("th", { scope: "col" }, h)))),
+      el("tbody", {}, recent.map((m) => el("tr", {},
+        el("td", { "data-label": "Received" }, fmtDate(m.received_at, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })),
+        el("td", { "data-label": "From" }, short(m.from_address, 40)), el("td", { "data-label": "Subject" }, short(m.subject, 80)),
+        el("td", { "data-label": "Read as" }, m.classification || "\u2013"),
+        el("td", { "data-label": "Result" }, m.action ? `${m.action.replace(/_/g, " ")}${m.company ? ` \u00b7 ${m.company}` : ""}` : "Logged")))))) : null,
+  ];
+}
+const inboundSheet = (inbound) => el("section", { class: "sheet", style: { marginTop: "16px" }, id: "forwarding" }, el("div", { class: "sheet-head" }, el("h2", {}, "Forward employer emails")), inboundBody(inbound));
+
+// ---------------------------------------------------------------- network
+function linkedinImport(after) {
+  const out = el("div", { "aria-live": "polite" });
+  const conn = input({ type: "file", accept: ".csv,text/csv" }), msgs = input({ type: "file", accept: ".csv,text/csv" });
+  const read = (i) => (i.files && i.files[0] ? i.files[0].text() : Promise.resolve(null));
+  const go = btn("Import", { kind: "primary" });
+  action(go, null, async () => {
+    try {
+      const connectionsCsv = await read(conn);
+      if (!connectionsCsv) throw new Error("Choose Connections.csv first.");
+      const r = await api("POST", "/connections/import", { connectionsCsv, messagesCsv: await read(msgs) });
+      clear(out, msg("go", `Imported ${plural(r.imported, "person", "people")}. ${r.matched} work at ${plural(r.companies, "company", "companies")} you could apply to.`), r.warnings.map((w) => msg("hold", w)));
+      if (after) await after();
+    } catch (e) { clear(out, msg("stop", e.message)); }
+  });
+  return el("div", { class: "stack" },
+    el("ol", { class: "note measure", style: { paddingLeft: "18px", margin: 0 } },
+      el("li", {}, "On LinkedIn, open Me › Settings & Privacy › Data privacy › Get a copy of your data."),
+      el("li", {}, "Choose Connections and Messages and request the archive. LinkedIn emails you when it's ready."),
+      el("li", {}, "Unzip it and choose the two files below. Import again every week or two; earlier asks are kept.")),
+    el("div", { class: "grid" }, field("Connections.csv", conn), field("messages.csv", msgs, "(optional, ranks warm contacts first)")),
+    el("div", { class: "row" }, go), out);
+}
+VIEWS.network = async () => {
+  const r = await api("GET", "/connections");
+  const by = new Map();
+  for (const c of r.items) { const k = c.company || "Other"; if (!by.has(k)) by.set(k, { id: c.company_id, people: [] }); by.get(k).people.push(c); }
+  const groups = [...by].sort((a, b) => b[1].people.length - a[1].people.length);
+  render(pageHead("Network", "People at companies you could apply to, warmest first. Ask for a referral before you apply."),
+    el("section", { class: "sheet" }, el("h2", {}, "Import your LinkedIn export"), linkedinImport(() => VIEWS.network())),
+    el("h2", {}, `People at your companies${groups.length ? ` (${r.items.length})` : ""}`),
+    groups.length ? el("div", { class: "sheet" }, el("ul", { class: "list" }, groups.map(([co, g]) => el("li", { style: { display: "block" } },
+      el("details", {}, el("summary", {}, coName(g.id || co, co), el("span", { class: "note", style: { fontWeight: 400 } }, ` · ${plural(g.people.length, "person", "people")}`)),
+        el("ul", { class: "list", style: { marginTop: "8px" } }, g.people.map((p) => el("li", {}, el("span", { class: "grow" }, el("strong", {}, p.full_name), " ",
+          el("span", { class: "note" }, [p.position, p.messages_count ? plural(p.messages_count, "message") : null, p.last_ask_at ? `asked ${fmtDay(p.last_ask_at)}` : null].filter(Boolean).join(" · ")))))))))))
+      : el("div", { class: "sheet empty" }, el("h3", {}, "No contacts yet"), el("p", { class: "note" }, "Import your export above. Only people at companies in the catalog are shown.")));
+};
+
+// ---------------------------------------------------------------- profile
+VIEWS.profile = async () => {
+  let p;
+  try { p = await api("GET", "/profile"); } catch (e) { if (e.status === 404) { location.hash = "#/setup"; return; } throw e; }
+  const [facts, timing] = await Promise.all([api("GET", "/facts"), api("GET", "/timing")]);
+  render(pageHead("Profile", `${p.facts.verified} of ${plural(p.facts.n, "fact")} confirmed. Only confirmed facts count toward scores, resumes and answers.`),
+    el("div", { class: "stack" }, factsSheet(facts.items), targetsSheet(p), languagesSheet(p), timingSheet(p, timing)));
+};
+function factsSheet(items) {
+  const out = el("div", { "aria-live": "polite" });
+  const kind = select(["role", "achievement", "skill", "project", "education", "certification", "language"].map((k) => [k, k[0].toUpperCase() + k.slice(1)]), "achievement");
+  const text = el("textarea", { rows: 2, placeholder: "Cut pipeline cost 40% for 3M users by moving batch jobs to incremental loads" });
+  const org = input({ placeholder: "Hooli" });
+  const skills = input({ placeholder: "python, sql, aws" });
+  const start = input({ type: "date" }), end = input({ type: "date" });
+  const add = btn("Add confirmed fact", { kind: "primary", icon: "plus" });
+  action(add, out, async () => {
+    await api("POST", "/facts", [{ kind: kind.value, text: text.value, org: org.value.trim() || null, skills: skills.value.split(",").map((x) => x.trim()).filter(Boolean), startDate: start.value || null, endDate: end.value || null, verified: true }]);
+    toast("Added"); route();
+  });
+  const byKind = {};
+  for (const f of items) (byKind[f.kind] = byKind[f.kind] || []).push(f);
+  return el("section", { class: "sheet", id: "facts" },
+    el("div", { class: "sheet-head" }, el("h2", {}, "Facts"), el("a", { class: "btn small quiet", href: "#/setup/facts" }, "Paste a resume")),
+    out,
+    items.length ? el("ul", { class: "list" }, items.map((f) => {
+      const ver = input({ type: "checkbox", checked: f.verified, "aria-label": "Confirmed true" });
+      ver.addEventListener("change", async () => { try { await api("PATCH", `/facts/${f.id}`, { verified: ver.checked }); toast(ver.checked ? "Confirmed" : "Unconfirmed"); } catch (e) { ver.checked = !ver.checked; clear(out, msg("stop", e.message)); } });
+      const li = el("li", {},
+        el("label", { class: "check", style: { alignItems: "center" } }, ver, el("span", { class: "vh" }, "Confirmed")),
+        el("div", { class: "grow" }, el("div", {}, f.text), el("div", { class: "note" }, [f.kind, f.org, f.skills.join(", "), [f.start_date, f.end_date].filter(Boolean).map(fmtDay).join(" – ")].filter(Boolean).join(" · "))));
+      li.append(confirmBtn("Delete", "Delete for good", out, async () => { await api("DELETE", `/facts/${f.id}`); li.remove(); toast("Deleted"); }));
+      li.lastChild.classList.add("small");
+      return li;
+    })) : el("p", { class: "note" }, "No facts yet. Add roles, achievements and skills, one true statement each."),
+    el("h3", { style: { marginTop: "24px", marginBottom: "12px" } }, "Add a fact"),
+    el("div", { class: "grid" }, field("Kind", kind), field("Company or school", org), field("From", start), field("To", end, "(blank if current)")),
+    el("div", { style: { marginTop: "12px" } }, field("Statement", text)),
+    el("div", { style: { marginTop: "12px" } }, field("Skills", skills, "(comma separated)")),
+    el("div", { class: "row", style: { marginTop: "12px" } }, add));
+}
+function targetsSheet(p) {
+  const out = el("div");
+  const countries = p.workAuth.length ? p.workAuth.map((a) => a.country) : ["US"];
+  const title = input({ placeholder: "Data Engineer" });
+  const country = select(countries.map((c) => [c, COUNTRY_NAME[c] || c]), countries[0]);
+  const level = select([["", "Any level"], ["entry", "Entry"], ["mid", "Mid"], ["senior", "Senior"], ["lead", "Lead"], ["executive", "Executive"]], "");
+  const floor = input({ type: "number", min: 0, step: 1000, inputmode: "numeric" });
+  const add = btn("Add role", { icon: "plus" });
+  action(add, out, async () => {
+    await api("POST", "/targets", { title: title.value, country: country.value, seniority: level.value || null, payFloor: floor.value ? Number(floor.value) : null, payCurrency: floor.value ? CURRENCY[country.value] || "USD" : null });
+    toast("Added"); route();
+  });
+  return el("section", { class: "sheet", id: "targets" }, el("h2", {}, "Target roles"), out,
+    el("ul", { class: "list" }, p.targets.map((t) => {
+      const rm = btn("Remove", { kind: "quiet", small: true });
+      action(rm, out, async () => { await api("DELETE", `/targets/${t.id}`); route(); });
+      return el("li", {}, el("span", { class: "grow" }, el("strong", {}, t.title), el("span", { class: "note" }, ` · ${COUNTRY_NAME[t.country] || t.country}${t.seniority ? ` · ${t.seniority}` : ""}${t.pay_floor ? ` · from ${money(t.pay_floor, t.pay_currency)}` : ""}`)), rm);
+    })),
+    el("div", { class: "grid", style: { marginTop: "12px" } }, field("Title", title), field("Country", country), field("Level", level), field("Pay floor", floor, "(optional)")),
+    el("div", { class: "row", style: { marginTop: "12px" } }, add));
+}
+function languagesSheet(p) {
+  const out = el("div");
+  const editor = languagesEditor(p.languages);
+  const save = btn("Save languages", { kind: "primary" });
+  action(save, out, async () => { await api("PUT", "/languages", editor.read()); toast("Saved"); });
+  return el("section", { class: "sheet", id: "languages" }, el("h2", {}, "Languages"), editor.node, out, el("div", { class: "row", style: { marginTop: "12px" } }, save));
+}
+function timingSheet(p, timing) {
+  const s = p.settings;
+  const out = el("div");
+  const daily = input({ type: "number", min: 0, max: 20, value: s.daily_target, inputmode: "numeric" });
+  const maxA = input({ type: "number", min: 1, max: 30, value: s.max_active_processes, inputmode: "numeric" });
+  const win = input({ type: "date", value: s.offer_window_start || "" });
+  const save = btn("Save", { kind: "primary" });
+  action(save, out, async () => {
+    await api("PUT", "/profile", { homeCountry: s.home_country, dailyTarget: Number(daily.value), maxActiveProcesses: Number(maxA.value), offerWindowStart: win.value || null });
+    toast("Saved");
+  });
+  const d = timing.stageDays;
+  return el("section", { class: "sheet", id: "timing" }, el("h2", {}, "Pace and timing"),
+    el("div", { class: "grid" }, field("Applications per day", daily, "(0–20)"), field("Most live processes at once", maxA), field("Offers should land around", win, "(optional)")),
+    el("p", { class: "note measure" }, "With a date set, dream companies are held back so their offers arrive inside a 20-day window around it, alongside the rest."),
+    el("dl", { class: "kv" },
+      el("dt", {}, "To a screen"), el("dd", {}, `${d.toScreen} days`),
+      el("dt", {}, "Screen to interview"), el("dd", {}, `${d.screenToInterview} days`),
+      el("dt", {}, "Interview to offer"), el("dd", {}, `${d.interviewToOffer} days`),
+      el("dt", {}, "Learned from"), el("dd", {}, { yours: "Your own applications", mixed: "Your own applications where there are two or more per stage, typical times elsewhere", default: "Typical times, until you have two of your own per stage" }[basisOf(timing)])),
+    out, el("div", { class: "row", style: { marginTop: "12px" } }, save));
+}
+
+// ---------------------------------------------------------------- settings
+const SETTINGS = [["answers", "Answer bank"], ["work", "Work authorization"], ["companies", "Companies"], ["email", "Email forwarding"], ["connectors", "AI connectors"], ["ai", "Your AI key"], ["plan", "Plan"], ["account", "Account"]];
+VIEWS.settings = async (section) => {
+  const [answers, p, prefs, tokens, aiKey, billing, inbound] = await Promise.all([
+    api("GET", "/answers"), api("GET", "/profile").catch(() => null), api("GET", "/preferences"), api("GET", "/tokens"), api("GET", "/ai/key"), api("GET", "/billing"),
+    api("GET", "/inbound").catch(() => null)]);
+  state.aiKey = aiKey.key;
+  const sec = (id, title, ...body) => el("section", { class: "sheet", id: `s-${id}`, "aria-labelledby": `h-${id}` }, el("h2", { id: `h-${id}` }, title), body);
+  render(pageHead("Settings"),
+    el("div", { class: "split settings" },
+      el("nav", { class: "section-nav", "aria-label": "Settings sections" }, SETTINGS.map(([id, l]) => el("a", { href: `#/settings/${id}`, onclick: (e) => { e.preventDefault(); document.getElementById(`s-${id}`).scrollIntoView({ behavior: "smooth" }); history.replaceState(null, "", `#/settings/${id}`); } }, l))),
+      el("div", {},
+        sec("answers", "Answer bank", answerBank(answers)),
+        sec("work", "Work authorization", workAuth(p)),
+        sec("companies", "Companies", companies(prefs.items)),
+        sec("email", "Email forwarding", inboundBody(inbound)),
+        sec("connectors", "AI connectors", connectors(tokens.items)),
+        sec("ai", "Your AI key", aiSettings(aiKey)),
+        sec("plan", "Plan", plan(billing)),
+        sec("account", "Account", accountSettings()))));
+  if (section) { const t = document.getElementById(`s-${section}`); if (t) t.scrollIntoView(); }
+};
+function answerBank(r) {
+  const out = el("div", { "aria-live": "polite" });
+  const row = (key, label, value, sensitive, hint, removable) => {
+    const q = { key, label, sensitive, hint };
+    const x = answerInput(q, value || "");
+    const save = btn("Save", { small: true });
+    action(save, out, async () => { if (!x.value()) throw new Error(`Type an answer for “${label}” first.`); await api("PUT", `/answers/${key}`, { answer: x.value(), sensitive }); toast("Saved"); });
+    const acts = el("div", { class: "row", style: { flexWrap: "nowrap" } }, save);
+    if (removable) { const del = btn("Delete", { small: true, kind: "quiet" }); action(del, out, async () => { await api("DELETE", `/answers/${key}`); x.node.remove(); toast("Deleted"); }); acts.append(del); }
+    x.node.lastChild.replaceWith(acts);
+    return x.node;
+  };
+  const key = input({ placeholder: "custom.portfolio" }), val = input({ placeholder: "https://…" });
+  const add = btn("Add", { icon: "plus" });
+  action(add, out, async () => { await api("PUT", `/answers/${key.value.trim()}`, { answer: val.value, sensitive: false }); toast("Saved"); route(); });
+  return el("div", {},
+    el("p", { class: "note measure", style: { marginTop: 0 } }, "Packets copy these into forms exactly. Sensitive answers are never rewritten, and nothing is guessed."),
+    out,
+    r.items.map((a) => row(a.question_key, a.label, a.answer, a.sensitive, "", true)),
+    r.missing.length ? el("details", { style: { marginTop: "16px" } }, el("summary", {}, `Not answered yet (${r.missing.length})`), r.missing.map((q) => row(q.key, q.label, "", q.sensitive, q.hint, false))) : null,
+    el("h3", { style: { marginTop: "24px", marginBottom: "12px" } }, "Add your own"),
+    el("div", { class: "grid" }, field("Key", key, "(starts with custom.)"), field("Answer", val)), el("div", { class: "row", style: { marginTop: "12px" } }, add));
+}
+function workAuth(p) {
+  const out = el("div");
+  const have = new Map(((p && p.workAuth) || []).map((a) => [a.country, a]));
+  const rows = COUNTRIES.map(([code, name]) => {
+    const a = have.get(code);
+    const st = select([["", "Not applying here"], ...WORK_STATUS], a ? a.status : "", { "aria-label": `Status in ${name}` });
+    const min = input({ type: "number", min: 0, value: a ? a.min_lca_filings : code === "US" ? 5 : 1, inputmode: "numeric", "aria-label": `Minimum sponsorship records in ${name}` });
+    const perm = input({ type: "number", min: 0, value: a ? a.min_perm_certified : code === "US" ? 3 : 0, inputmode: "numeric", "aria-label": "Minimum PERM certifications", disabled: code !== "US" });
+    const save = btn("Save", { small: true });
+    action(save, out, async () => {
+      if (!st.value) throw new Error(`To stop applying in ${name}, remove its target roles in Profile.`);
+      await api("PUT", `/work-auth/${code}`, { status: st.value, minLcaFilings: Number(min.value), minPermCertified: Number(perm.value) }); toast("Saved");
+    });
+    return el("li", {}, el("strong", { style: { width: "140px" } }, name), el("div", { style: { flex: "1 1 240px" } }, st),
+      el("div", { style: { width: "110px" } }, min), code === "US" ? el("div", { style: { width: "110px" } }, perm) : el("div", { style: { width: "110px" } }), save);
+  });
+  return el("div", {},
+    el("p", { class: "note measure", style: { marginTop: 0 } }, "When you need sponsorship, employers must show a public record: H-1B (LCA) filings and PERM certifications in the US, a Home Office sponsor licence in the UK (A-rated by default), approved LMIA positions in Canada. The two number columns are the minimums."),
+    el("ul", { class: "list" }, rows), out);
+}
+function companies(prefs) {
+  const out = el("div");
+  const q = input({ type: "search", placeholder: "Search the employer catalog", "aria-label": "Search companies" });
+  const results = el("ul", { class: "list" });
+  const setPref = async (id, body) => { await api("PUT", `/companies/${id}/preference`, body); toast("Saved"); route(); };
+  const tierBtns = (c) => [["warmup", "Warm-up"], ["mid", "Mid"], ["dream", "Dream"]].map(([t, l]) => { const b = btn(l, { small: true, kind: c.tier === t ? "primary" : "" }); action(b, out, () => setPref(c.id || c.company_id, { tier: t })); return b; });
+  const search = el("form", { class: "row" }, el("div", { class: "grow" }, q), btn("Search", { type: "submit" }));
+  search.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    try {
+      const r = await api("GET", `/companies?q=${encodeURIComponent(q.value.trim())}`);
+      clear(results, r.items.length ? r.items.slice(0, 30).map((c) => {
+        const reason = input({ placeholder: "Reason (optional)", "aria-label": `Why block ${c.name}` });
+        const block = btn("Block", { small: true, kind: "danger" });
+        action(block, out, () => setPref(c.id, { blockMode: "hard", reason: reason.value.trim() || "Blocked" }));
+        return el("li", {}, el("span", { class: "grow" }, coName(c.id, c.name)), tierBtns(c), el("div", { style: { width: "170px" } }, reason), block);
+      }) : el("li", { class: "note" }, "No match in the catalog."));
+    } catch (err) { clear(out, msg("stop", err.message)); }
+  });
+  return el("div", {},
+    el("p", { class: "note measure", style: { marginTop: 0 } }, "Warm-up companies come first so you practise before the ones you want most. Dream companies are timed for your offer window. Blocked companies never appear."),
+    search, results, out,
+    prefs.length ? el("div", {}, el("h3", { style: { margin: "24px 0 8px" } }, "Your choices"), el("ul", { class: "list" }, prefs.map((c) => {
+      const clr = btn("Clear", { small: true, kind: "quiet" });
+      action(clr, out, () => setPref(c.company_id, { tier: null, blockMode: null }));
+      return el("li", {}, el("span", { class: "grow" }, coName(c.company_id, c.name)), c.block_mode ? el("span", { class: "tag stop" }, `Blocked${c.block_reason ? `: ${c.block_reason}` : ""}`) : el("span", { class: "tag" }, { warmup: "Warm-up", mid: "Mid", dream: "Dream" }[c.tier] || c.tier), clr);
+    }))) : null);
+}
+function connectors(items) {
+  const out = el("div", { "aria-live": "polite" });
+  const name = input({ placeholder: "Claude Desktop", "aria-label": "Token name" });
+  const make = btn("Create token", { kind: "primary" });
+  const origin = location.origin;
+  action(make, out, async () => {
+    const r = await api("POST", "/tokens", { name: name.value.trim() });
+    clear(out, msg("hold", "Copy it now. It won't be shown again."), el("div", { class: "secret" }, el("span", {}, r.token), btn("Copy", { small: true, icon: "copy", onclick: () => copy(r.token) })),
+      el("p", { class: "note" }, "Add it to your AI tool's MCP settings. For example:"),
+      el("pre", { class: "code" }, JSON.stringify({ mcpServers: { "my-career-agent": { type: "http", url: `${origin}/mcp`, headers: { Authorization: `Bearer ${r.token}` } } } }, null, 2)),
+      btn("Done, refresh the list", { small: true, onclick: () => route() }));
+  });
+  return el("div", {},
+    el("p", { class: "note measure", style: { marginTop: 0 } }, "Connect any AI assistant that speaks MCP to read your queue and packets, check answers and save drafts. Connectors can't mark an application submitted; only you can."),
+    el("dl", { class: "kv" }, el("dt", {}, "Server address"), el("dd", {}, el("span", { class: "mono" }, `${origin}/mcp`)), el("dt", {}, "Sign-in"), el("dd", {}, "A token from below, sent as a Bearer header")),
+    el("ul", { class: "list", style: { marginTop: "12px" } }, items.length ? items.map((t) => {
+      const li = el("li", {}, el("span", { class: "grow" }, el("strong", {}, t.name), el("span", { class: "note" }, ` · ${t.prefix}… · created ${fmtDay(t.created_at)} · ${t.last_used_at ? `last used ${fmtDay(t.last_used_at)}` : "never used"}`)));
+      li.append(confirmBtn("Revoke", "Revoke now", out, async () => { await api("DELETE", `/tokens/${t.id}`); li.remove(); toast("Revoked"); }));
+      li.lastChild.classList.add("small");
+      return li;
+    }) : el("li", { class: "note" }, "No tokens yet.")),
+    el("div", { class: "row", style: { marginTop: "12px" } }, el("div", { style: { width: "260px" } }, name), make), out);
+}
+function aiSettings(r) {
+  const out = el("div", { "aria-live": "polite" });
+  if (!r.available) return msg("info", "Your own AI key isn't switched on for this server yet. You can still draft answers with any AI tool and check them in the packet.");
+  const provider = select([["anthropic", "Anthropic"], ["openai", "OpenAI"]], r.key ? r.key.provider : "anthropic", { "aria-label": "Provider" });
+  const key = input({ type: "password", autocomplete: "off", placeholder: r.key ? `Saved key ends ${r.key.last4}` : "Paste your API key", "aria-label": "API key" });
+  const model = input({ placeholder: r.defaults[provider.value], value: r.key && r.key.model !== r.defaults[r.key.provider] ? r.key.model : "", "aria-label": "Model" });
+  provider.addEventListener("change", () => { model.placeholder = r.defaults[provider.value]; });
+  const save = btn(r.key ? "Replace key" : "Save key", { kind: "primary" });
+  action(save, out, async () => { const x = await api("PUT", "/ai/key", { provider: provider.value, apiKey: key.value, model: model.value.trim() || undefined }); state.aiKey = x; toast("Saved"); route(); });
+  const rm = r.key ? confirmBtn("Remove key", "Remove now", out, async () => { await api("DELETE", "/ai/key"); state.aiKey = null; toast("Removed"); route(); }) : null;
+  return el("div", {},
+    el("p", { class: "note measure", style: { marginTop: 0 } }, "Optional. Drafts are sent to your provider with your confirmed facts and the posting, billed to your account. The key is encrypted and only used when you press “Draft with my AI”. Every draft is checked before you can save it."),
+    r.key ? el("p", {}, el("span", { class: "tag go" }, icon("check"), `${r.key.provider === "anthropic" ? "Anthropic" : "OpenAI"} key ending ${r.key.last4}`), el("span", { class: "note" }, ` · model ${r.key.model}`)) : null,
+    el("div", { class: "grid" }, field("Provider", provider), field("API key", key), field("Model", model, "(optional)")),
+    out, el("div", { class: "row", style: { marginTop: "12px" } }, save, rm));
+}
+function plan(b) {
+  if (!b.enabled) return el("div", {}, el("p", { style: { marginTop: 0 } }, el("span", { class: "tag go" }, "Free beta")), el("p", { class: "note measure" }, "Everything is free during the beta. If that changes, you'll be told in advance and nothing is charged without you choosing a plan."));
+  const out = el("div");
+  const act = b.plan === "paid" ? btn("Manage billing", { icon: "out" }) : btn("Upgrade", { kind: "primary" });
+  action(act, out, async () => { const r = await api("POST", b.plan === "paid" ? "/billing/portal" : "/billing/checkout"); location.href = r.url; });
+  return el("div", {}, el("dl", { class: "kv" }, el("dt", {}, "Plan"), el("dd", {}, b.plan === "paid" ? "Paid" : "Free"), el("dt", {}, "Applications per day"), el("dd", {}, String(b.dailyLimit)),
+    b.renewsOn ? [el("dt", {}, "Renews"), el("dd", {}, fmtDay(b.renewsOn))] : null), out, el("div", { class: "row", style: { marginTop: "12px" } }, act));
+}
+function accountSettings() {
+  const out = el("div", { "aria-live": "polite" });
+  const parts = [];
+  if (!state.me.email) {
+    const email = input({ type: "email", autocomplete: "email", "aria-label": "Email" }), pw = input({ type: "password", autocomplete: "new-password", "aria-label": "New password" });
+    const claim = btn("Add sign-in", { kind: "primary" });
+    action(claim, out, async () => { await api("POST", "/auth/claim", { email: email.value, password: pw.value }); toast("Sign-in added"); await loadMe(); route(); });
+    parts.push(msg("hold", "This account has no email and password yet. Add them so you can sign in without a token."),
+      el("div", { class: "grid" }, field("Email", email), field("Password", pw, "(at least 10 characters)")), el("div", { class: "row", style: { marginTop: "12px" } }, claim));
+  } else {
+    const cur = input({ type: "password", autocomplete: "current-password" }), nxt = input({ type: "password", autocomplete: "new-password" });
+    const change = btn("Change password");
+    action(change, out, async () => { await api("POST", "/auth/password", { current: cur.value, next: nxt.value }); cur.value = nxt.value = ""; toast("Password changed. Other sessions were signed out."); });
+    parts.push(el("dl", { class: "kv" }, el("dt", {}, "Email"), el("dd", {}, state.me.email)),
+      el("h3", { style: { margin: "20px 0 12px" } }, "Change password"),
+      el("div", { class: "grid" }, field("Current password", cur), field("New password", nxt)), el("div", { class: "row", style: { marginTop: "12px" } }, change));
+  }
+  const exp = btn("Download my data", { icon: "down" });
+  action(exp, out, async () => download("/account/export", "my-career-agent-export.json"));
+  const confirmBox = input({ placeholder: "Type DELETE", "aria-label": "Type DELETE to confirm", autocomplete: "off" });
+  const pw = input({ type: "password", autocomplete: "current-password", "aria-label": "Your password" });
+  const del = btn("Delete my account", { kind: "danger" });
+  action(del, out, async () => {
+    await api("DELETE", "/account", { confirm: confirmBox.value.trim(), password: pw.value });
+    tokenStore.set(null); state.me = null; location.hash = "#/signin";
+  });
+  parts.push(el("h3", { style: { margin: "28px 0 8px" } }, "Your data"),
+    el("p", { class: "note measure" }, "Download everything we hold about you as JSON: profile, facts, answers, contacts, applications and their history."),
+    el("div", { class: "row" }, exp),
+    el("h3", { style: { margin: "28px 0 8px" } }, "Delete account"),
+    el("p", { class: "note measure" }, "Deletes your account and all your data at once. This can't be undone. Download your data first if you want a copy."),
+    el("div", { class: "grid" }, field("Confirm", confirmBox), state.me.email ? field("Password", pw) : null), el("div", { class: "row", style: { marginTop: "12px" } }, del),
+    out);
+  return el("div", {}, parts);
+}
+
+// ---------------------------------------------------------------- score a posting
+VIEWS.score = async () => {
+  const out = el("div", { "aria-live": "polite" });
+  const title = input({ placeholder: "Senior Data Engineer" });
+  const country = select(COUNTRIES, "US");
+  const desc = el("textarea", { rows: 12, placeholder: "Paste the job description" });
+  const go = btn("Score it", { kind: "primary" });
+  const pct = (x) => `${Math.round(x * 100)}%`;
+  action(go, null, async () => {
+    try {
+      const r = await api("POST", "/score", { title: title.value, description: desc.value, country: country.value });
+      const s = r.score;
+      clear(out, el("section", { class: "sheet", style: { marginTop: "16px" } },
+        el("div", { class: "row" }, el("div", { class: "qrow", style: { padding: 0, gridTemplateColumns: "56px 1fr" } }, el("div", { class: "fit" }, s.total, el("small", {}, "fit")),
+          el("div", {}, el("h3", {}, "Fit with your confirmed facts"), el("div", { class: "note" }, `Must-haves ${pct(s.mustHaveCoverage)} · nice-to-haves ${pct(s.niceToHaveCoverage)} · level ${pct(s.seniorityFit)} · years ${pct(s.yearsFit)}`))),
+          el("span", { class: `tag ${r.gateVerdict === "PASS" ? "go" : r.gateVerdict === "FLAG" ? "hold" : "stop"}`, style: { marginLeft: "auto" } }, { PASS: "Requirements met", FLAG: "Check requirements", FAIL: "Requirements not met" }[r.gateVerdict] || r.gateVerdict)),
+        r.integrity.level === "alarm" ? msg("stop", `Posting check: ${r.integrity.verdict}`) : null,
+        r.gates.flatMap((g) => g.notes).length ? el("ul", { class: "issues" }, r.gates.flatMap((g) => g.notes).map((n) => el("li", {}, icon("alert"), el("span", {}, n)))) : null,
+        el("h3", { style: { margin: "20px 0 4px" } }, "Matched"), el("p", {}, s.matched.join(", ") || "Nothing yet"),
+        el("h3", { style: { margin: "20px 0 4px" } }, "Gaps"), r.suggestions.length ? el("ul", {}, r.suggestions.map((g) => el("li", {}, el("strong", {}, g.skill), ": ", g.note))) : el("p", { class: "note" }, "None among the skills this posting names."),
+        s.redFlags.length ? [el("h3", { style: { margin: "20px 0 4px" } }, "Red flags"), el("ul", {}, s.redFlags.map((f) => el("li", {}, f)))] : null));
+    } catch (e) { clear(out, msg("stop", e.message)); }
+  });
+  render(pageHead("Score a posting", "Paste any posting to see how your confirmed facts match it. Hidden text is removed first."),
+    el("section", { class: "sheet" }, el("div", { class: "grid" }, field("Title", title), field("Country", country)), el("div", { style: { marginTop: "12px" } }, field("Description", desc)), el("div", { class: "row", style: { marginTop: "12px" } }, go)), out);
+};
+
+// ---------------------------------------------------------------- privacy and terms (drafts)
+VIEWS.privacy = async () => render(el("div", { class: "measure" }, pageHead("Privacy", "Draft for the beta, pending legal review."),
+  el("section", { class: "sheet stack" },
+    el("p", {}, "My Career Agent stores what you give it to prepare your applications: your profile, facts you confirm, answers you save, contacts you import from your own LinkedIn export, your applications and their history, and employer emails you choose to forward."),
+    el("p", {}, "It's used only to run the service for you. It isn't sold, and it isn't used to train AI models. If you add your own AI key, drafting requests go to that provider under your account."),
+    el("p", {}, "Your LinkedIn password is never asked for or stored, and LinkedIn is never scraped."),
+    el("p", {}, "You can download all your data or delete your account at any time from Settings › Account. Deletion is immediate."),
+    el("p", {}, "Data is held on Cloudflare and Neon. Contact details for the data controller will be published here before the beta opens widely."))));
+VIEWS.terms = async () => render(el("div", { class: "measure" }, pageHead("Terms", "Draft for the beta, pending legal review."),
+  el("section", { class: "sheet stack" },
+    el("p", {}, "My Career Agent suggests roles and prepares material. You review and submit every application yourself, and you're responsible for what you send."),
+    el("p", {}, "Sponsorship evidence comes from public government records and can be out of date. It isn't legal or immigration advice."),
+    el("p", {}, "The beta is free and may change. You'll be told before anything is charged."))));
+
+// ---------------------------------------------------------------- start
+route();

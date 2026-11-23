@@ -1,0 +1,47 @@
+name: UK and Canada sponsor data
+
+# UK: Home Office register of licensed sponsors (updated daily). Copy the CSV link from
+#   https://www.gov.uk/government/publications/register-of-licensed-sponsors-workers
+# Canada: ESDC positive LMIA employers list (quarterly). Copy the CSV link from
+#   https://open.canada.ca (search "positive labour market impact assessment employers")
+# Or set repository variables UK_REGISTER_URL / CA_LMIA_URL for the weekly run.
+
+on:
+  workflow_dispatch:
+    inputs:
+      uk_url: { description: "UK register CSV URL", required: false }
+      ca_url: { description: "Canada positive LMIA CSV URL", required: false }
+  schedule:
+    - cron: "41 5 * * 1"
+
+jobs:
+  load:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: jobs
+    env:
+      UK_URL: ${{ inputs.uk_url || vars.UK_REGISTER_URL }}
+      CA_URL: ${{ inputs.ca_url || vars.CA_LMIA_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Derive the loader connection string
+        run: node ../scripts/db-urls.mjs
+        env:
+          DATABASE_OWNER_URL: ${{ secrets.DATABASE_OWNER_URL }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[db]"
+      - name: Download and load
+        run: |
+          set -euo pipefail
+          mkdir -p data
+          args=()
+          if [ -n "${UK_URL}" ]; then curl -fL --retry 3 -o data/uk_register.csv "${UK_URL}"; args+=(--uk data/uk_register.csv); fi
+          if [ -n "${CA_URL}" ]; then curl -fL --retry 3 -o data/ca_lmia.csv "${CA_URL}"; args+=(--ca data/ca_lmia.csv); fi
+          if [ ${#args[@]} -eq 0 ]; then echo "No URLs configured; nothing to do."; exit 0; fi
+          python -m my_career_agent_jobs.uk_ca_sponsors "${args[@]}"

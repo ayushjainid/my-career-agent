@@ -275,9 +275,22 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{path.name}: {sum(s.filings for s in summaries)} filings -> {len(summaries)} employer/SOC rows")
         rows.extend(batch)
 
+    pay_rows: list[dict[str, object]] = []
+    if args.lca:
+        from .pay_lca import summarise_pay
+        try:
+            pay_rows = summarise_pay(args.lca)
+            print(f"{args.lca.name}: {len(pay_rows)} pay benchmark rows")
+        except LayoutError as err:  # older layouts without wage columns: sponsors still load
+            print(f"pay benchmarks skipped: {err}")
+
     if args.database_url:
         load_to_postgres(rows, args.database_url)
         print(f"loaded {len(rows)} rows into mca.sponsor_record")
+        if pay_rows:
+            from .pay_lca import load_pay_to_postgres
+            load_pay_to_postgres(pay_rows, args.database_url)
+            print(f"loaded {len(pay_rows)} rows into mca.pay_benchmark")
     return 0
 
 

@@ -78,7 +78,7 @@ referrals.post("/connections/import", async (c) => {
 /** Contacts grouped by matched company, strongest first. */
 referrals.get("/connections", async (c) => {
   const [rows = []] = await c.get("db").asUser(c.get("userId"), [
-    stmt(`SELECT ct.id, ct.full_name, ct.position, ct.company_name, co.name AS company, ct.messages_count,
+    stmt(`SELECT ct.id, ct.full_name, ct.position, ct.company_name, ct.company_id, co.name AS company, ct.messages_count,
                  ct.last_message_at::text AS last_message_at, ct.connected_on::text AS connected_on, ct.last_ask_at::text AS last_ask_at
           FROM mca.contact ct LEFT JOIN mca.company co ON co.id = ct.company_id
           WHERE ct.company_id IS NOT NULL ORDER BY co.name, ct.messages_count DESC, ct.full_name LIMIT 2000`),

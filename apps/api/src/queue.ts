@@ -3,6 +3,8 @@
 
 import {
   buildDailyQueue,
+  learnStageDays,
+  timeToOfferDays,
   extractRequirements,
   type CompanyPreference,
   type DeclaredLanguage,
@@ -16,6 +18,7 @@ import {
   type WorkAuthStatus,
 } from "@my-career-agent/core";
 import { stmt, type Row, type TenantDb } from "./lib/tenant.js";
+import { loadTimingApps } from "./timingApi.js";
 
 const iso = (v: unknown): string | null => {
   if (v === null || v === undefined) return null;
@@ -42,15 +45,17 @@ export async function loadQueueInput(db: TenantDb, userId: string, today: Date):
           FROM mca.contact WHERE company_id IS NOT NULL`),
     stmt(`SELECT a.job_id, a.state, a.created_at, a.planned_date::text AS planned_date, j.company_id FROM mca.application a JOIN mca.job j ON j.id = a.job_id`),
     stmt(
-      `SELECT j.id, j.company_id, j.title, j.country, j.description_text, j.requirements, j.posted_at, j.status,
+      `SELECT j.id, j.company_id, j.title, j.country, j.description_text, j.requirements, j.sponsorship_text_signal, j.posted_at, j.status,
               j.pay_max, j.pay_currency, j.integrity->>'level' AS integrity_level,
-              s.filings, s.perm_certified, s.perm_denied, s.last_filing
+              s.filings, s.perm_certified, s.perm_denied, s.last_filing, s.rating
        FROM mca.job j
        LEFT JOIN LATERAL (
-         SELECT sum(filings) FILTER (WHERE source = 'dol_lca') AS filings,
+         SELECT sum(filings) FILTER (WHERE source IN ('dol_lca', 'esdc_lmia')
+                                       OR (source = 'ukvi_register' AND coalesce(extra->>'route', '') ILIKE 'skilled worker%')) AS filings,
                 sum(certified) FILTER (WHERE source = 'dol_perm') AS perm_certified,
                 sum(denied) FILTER (WHERE source = 'dol_perm') AS perm_denied,
-                max(period_end)::text AS last_filing
+                max(period_end)::text AS last_filing,
+                min(extra->>'rating') FILTER (WHERE source = 'ukvi_register') AS rating
          FROM mca.sponsor_record r
          WHERE r.company_id = j.company_id AND r.country = coalesce(j.country, 'US')
        ) s ON true
@@ -125,7 +130,7 @@ export async function loadQueueInput(db: TenantDb, userId: string, today: Date):
             niceToHave: stored.niceToHave ?? [],
             minYears: stored.minYears ?? null,
             seniority: stored.seniority ?? null,
-            sponsorshipSignal: stored.sponsorshipSignal ?? "none",
+            sponsorshipSignal: stored.sponsorshipSignal ?? (j.sponsorship_text_signal as JobRequirements["sponsorshipSignal"] | null) ?? "none",
           }
         : extractRequirements(String(j.title), String(j.description_text ?? ""));
     const hasSponsor = j.filings !== null || j.perm_certified !== null;
@@ -147,6 +152,7 @@ export async function loadQueueInput(db: TenantDb, userId: string, today: Date):
             permCertified: num(j.perm_certified) ?? 0,
             permDenied: num(j.perm_denied) ?? 0,
             lastFilingDate: (j.last_filing as string | null) ?? null,
+            rating: (j.rating as string | null) ?? null,
           }
         : null,
     };
@@ -168,6 +174,7 @@ export async function loadQueueInput(db: TenantDb, userId: string, today: Date):
       connectedOn: (c.connected_on as string | null) ?? null,
       lastAskAt: (c.last_ask_at as string | null) ?? null,
     })),
+    targetCountries: [...new Set((targets ?? []).map((t) => String(t.country).toUpperCase()))],
     today,
     // Unreviewed items from earlier days count against today's target, so the queue never piles up.
     dailyTarget: Math.max(0, Number(user.daily_target) - backlog),
@@ -214,9 +221,14 @@ export async function saveQueue(db: TenantDb, userId: string, today: Date, r: Qu
   ]);
 }
 
-export async function runQueueForUser(db: TenantDb, userId: string, today: Date): Promise<QueueResult | null> {
+export async function runQueueForUser(db: TenantDb, userId: string, today: Date, limit: number | null = null): Promise<QueueResult | null> {
   const input = await loadQueueInput(db, userId, today);
   if (!input) return null;
+  if (limit !== null) input.dailyTarget = Math.min(input.dailyTarget, limit);
+  // Dream companies are held back by the person's own time-to-offer once there is history for it.
+  const learned = learnStageDays(await loadTimingApps(db, userId));
+  const tto = timeToOfferDays(learned.days);
+  input.timeToOfferDays = () => tto;
   const result = buildDailyQueue(input);
   await saveQueue(db, userId, today, result);
   return result;

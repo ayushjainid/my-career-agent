@@ -1,11 +1,13 @@
 // POC loop P2 (profile) and P3 (queue) endpoints. Everything goes through TenantDb, so the same
 // handlers run against Neon in production and against the real migrations in tests.
 
-import { LANGUAGE_LEVELS, canonicalizeSkill, isoDate, type Seniority } from "@my-career-agent/core";
+import { COUNTRY_INFO, LANGUAGE_LEVELS, canonicalizeSkill, findSkills, isoDate, normalizeCountry, type Seniority } from "@my-career-agent/core";
 import { Hono } from "hono";
 import type { AppBindings } from "./env.js";
 import { stmt } from "./lib/tenant.js";
 import { runQueueForUser } from "./queue.js";
+import { payBenchmarks } from "./timingApi.js";
+import { dailyLimit } from "./billing.js";
 
 export const profile = new Hono<AppBindings>();
 
@@ -80,9 +82,11 @@ function parseFact(raw: unknown): FactIn | string {
   const end = f.endDate === undefined ? null : dateOrNull(f.endDate);
   if (start === undefined || end === undefined) return "dates must be YYYY-MM-DD";
   if (start && end && end < start) return "endDate is before startDate";
-  const skills = Array.isArray(f.skills)
+  const given = Array.isArray(f.skills)
     ? [...new Set(f.skills.filter((s): s is string => typeof s === "string" && !!s.trim()).map((s) => canonicalizeSkill(s.trim().slice(0, 60))))].slice(0, 50)
     : [];
+  // No skills given (e.g. a statement split from a pasted resume): take the ones the statement names.
+  const skills = given.length ? given : findSkills(text).slice(0, 50);
   return { kind, text, org: str(f.org, 200), skills, startDate: start, endDate: end, verified: f.verified === true };
 }
 
@@ -169,13 +173,14 @@ profile.put("/languages", async (c) => {
 });
 
 profile.put("/work-auth/:country", async (c) => {
-  const country = c.req.param("country").toUpperCase();
+  const country = normalizeCountry(c.req.param("country")) ?? "";
   if (!COUNTRY.test(country)) return c.json({ error: "country must be a 2-letter code" }, 400);
   const b = await body(c);
   const status = str(b.status, 30);
   if (!status || !STATUSES.includes(status)) return c.json({ error: `status must be one of ${STATUSES.join(", ")}` }, 400);
-  const minLca = b.minLcaFilings === undefined ? 5 : intIn(b.minLcaFilings, 0, 10_000);
-  const minPerm = b.minPermCertified === undefined ? 3 : intIn(b.minPermCertified, 0, 10_000);
+  const defaults = COUNTRY_INFO[country as keyof typeof COUNTRY_INFO]?.defaults ?? { minFilings: 0, minPermCertified: 0 };
+  const minLca = b.minLcaFilings === undefined ? defaults.minFilings : intIn(b.minLcaFilings, 0, 10_000);
+  const minPerm = b.minPermCertified === undefined ? defaults.minPermCertified : intIn(b.minPermCertified, 0, 10_000);
   if (minLca === undefined || minPerm === undefined) return c.json({ error: "thresholds must be whole numbers" }, 400);
   const uid = c.get("userId");
   await c.get("db").asUser(uid, [
@@ -193,7 +198,7 @@ profile.put("/work-auth/:country", async (c) => {
 
 profile.post("/targets", async (c) => {
   const b = await body(c);
-  const country = str(b.country, 2)?.toUpperCase();
+  const country = normalizeCountry(str(b.country, 2));
   const title = str(b.title, 120);
   if (!country || !COUNTRY.test(country) || !title) return c.json({ error: "country (2 letters) and title are required" }, 400);
   const seniority = b.seniority === undefined || b.seniority === null ? null : (b.seniority as Seniority);
@@ -249,7 +254,7 @@ profile.get("/companies", async (c) => {
 /** Build today's queue now (the nightly job runs the same function). Safe to repeat. */
 profile.post("/queue/build", async (c) => {
   const today = new Date();
-  const result = await runQueueForUser(c.get("db"), c.get("userId"), today);
+  const result = await runQueueForUser(c.get("db"), c.get("userId"), today, await dailyLimit(c.env, c.get("db"), c.get("userId")));
   if (!result) return c.json({ error: "add a profile and at least one target first" }, 409);
   return c.json({ date: isoDate(today), queued: result.queue.length, heldBack: result.heldBack.length, excluded: result.excluded.length, note: result.note });
 });
@@ -269,7 +274,9 @@ profile.get("/queue", async (c) => {
           WHERE a.planned_date <= current_date AND a.state IN ('queued','approved','ready_for_review')
           ORDER BY a.planned_date, a.rank_score DESC NULLS LAST`),
   ]);
-  return c.json({ items: rows });
+  const items = rows ?? [];
+  const pay = await payBenchmarks(c.get("db"), c.get("userId"), items.map((r) => ({ companyId: String(r.company_id), title: String(r.title) })));
+  return c.json({ items: items.map((r) => ({ ...r, pay_benchmark: pay.get(`${r.company_id}|${r.title}`) ?? null })) });
 });
 
 /** What the builder did on a day, including every excluded job and its reason. */

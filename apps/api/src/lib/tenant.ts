@@ -14,6 +14,8 @@ export type Row = Record<string, unknown>;
 export interface TenantDb {
   /** Runs all statements in one transaction with app.user_id set; returns rows per statement. */
   asUser(userId: string, stmts: Stmt[]): Promise<Row[][]>;
+  /** Runs statements with no user context: only the definer functions answer anything here. */
+  asSystem(stmts: Stmt[]): Promise<Row[][]>;
 }
 
 export const stmt = (text: string, ...params: unknown[]): Stmt => ({ text, params });
@@ -27,6 +29,9 @@ export function neonTenantDb(sql: Sql): TenantDb {
         ...stmts.map((s) => sql(s.text, s.params ?? [])),
       ]);
       return results.slice(1) as Row[][];
+    },
+    async asSystem(stmts) {
+      return (await sql.transaction(stmts.map((s) => sql(s.text, s.params ?? [])))) as Row[][];
     },
   };
 }

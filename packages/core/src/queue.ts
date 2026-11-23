@@ -6,7 +6,8 @@ import { combineGates, eligibilityGate, languageGate, type DeclaredLanguage, typ
 import { planToday } from "./planner.js";
 import { rankCandidates, type CompanyPreference, type Excluded } from "./ranking.js";
 import { scoreResume } from "./scoring.js";
-import { sponsorshipScore, type SponsorEvidence, type SponsorThresholds } from "./sponsorship.js";
+import { sponsorshipFor, type CountryEvidence } from "./countries.js";
+import type { SponsorThresholds } from "./sponsorship.js";
 import type { JobRequirements, Profile, Tier } from "./types.js";
 
 export interface QueueJob {
@@ -21,8 +22,8 @@ export interface QueueJob {
   payMax: number | null;
   payCurrency: string | null;
   integrityLevel: "alarm" | "context" | "clean" | "no_text" | null;
-  /** Public filings for this company in the job's country; null when none are known. */
-  sponsor: SponsorEvidence | null;
+  /** Public sponsor evidence for this company in the job's country; null when none is known. */
+  sponsor: CountryEvidence | null;
 }
 
 export interface QueueContact {
@@ -37,6 +38,8 @@ export interface QueueInput {
   jobs: QueueJob[];
   profile: Profile;
   languages: DeclaredLanguage[];
+  /** Countries the person targets (from their target roles). Jobs elsewhere are excluded. */
+  targetCountries?: string[];
   /** Status per country, upper-case ISO code. Countries not listed are unknown. */
   workAuth: Record<string, { status: WorkAuthStatus; thresholds: SponsorThresholds }>;
   prefs: Map<string, CompanyPreference>;
@@ -105,8 +108,13 @@ export function buildDailyQueue(input: QueueInput): QueueResult {
   }
 
   const candidates = [];
+  const targets = new Set((input.targetCountries ?? []).map((c) => c.toUpperCase()));
   for (const j of input.jobs) {
     const country = (j.country ?? "").toUpperCase();
+    if (country && targets.size && !targets.has(country)) {
+      excluded.push({ jobId: j.jobId, reason: `Located in ${country}; your target roles are in ${[...targets].join(", ")}` });
+      continue;
+    }
     const auth = country ? input.workAuth[country] : undefined;
     const gates = [languageGate(j.descriptionText, input.languages), eligibilityGate(j.descriptionText, auth?.status ?? null)];
     const verdict = combineGates(gates);
@@ -127,13 +135,7 @@ export function buildDailyQueue(input: QueueInput): QueueResult {
     fitByJob.set(j.jobId, fit);
 
     const needsSponsor = auth?.status === "needs_sponsorship";
-    const sponsorship = needsSponsor
-      ? j.sponsor
-        ? sponsorshipScore(j.sponsor, auth.thresholds, j.requirements.sponsorshipSignal, input.today)
-        : j.requirements.sponsorshipSignal === "positive"
-          ? { score: 0.5, passes: true }
-          : { score: 0, passes: false }
-      : null;
+    const sponsorship = needsSponsor ? sponsorshipFor(country, j.sponsor, auth.thresholds, j.requirements.sponsorshipSignal, input.today) : null;
 
     candidates.push({
       jobId: j.jobId,

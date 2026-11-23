@@ -4,7 +4,7 @@ A tool-neutral job-search agent: it finds and ranks roles, checks visa sponsorsh
 when to apply where, and prepares an apply packet that any tool (or the built-in copy-assist panel)
 can use. The user always submits.
 
-Design: see the "My Career Agent — Technical Design" doc. This repository is the **Foundations** milestone.
+Design: see the "My Career Agent — Technical Design" doc. The POC (P0–P5) and the beta loops (B1–B7) are built; see Beta progress below.
 
 ## What works today
 
@@ -41,22 +41,48 @@ Each loop is done only when its automated check, its real-use check and its exit
 | P4 Referrals | `parseLinkedInExport`, `/connections/import`, `/referrals/:jobId`, drafted asks | Passing: parser + end-to-end | Import your export; 50 matches sampled, 90% right |
 | P5 Apply packet and tracker | Answer bank, form-answer checks, `/packets/:jobId`, `/applications`, web app | Passing: end-to-end + browser walkthrough | 10 real applications, no wrong answers |
 
+## Beta progress
+
+| Loop | Code | Automated check |
+| --- | --- | --- |
+| B1 Accounts and onboarding | Email and password sign-up (invite-only), sessions, personal access tokens, setup wizard, data export and deletion: `apps/api/src/auth.ts`, `db/migrations/0005_accounts.sql` | Passing: accounts tests, RLS denial tests |
+| B2 Resume files | Tailored PDF and Word files from confirmed facts only, with the text-layer check: `packages/core/src/resume.ts`, `apps/api/src/resumeFiles.ts` | Passing: the PDF's real text layer is read back |
+| B3 Email and follow-ups | Forwarding addresses, stage updates from employer emails, follow-up and thank-you drafts: `apps/api/src/email.ts`, `followupsApi.ts` | Passing: classifier and end-to-end |
+| B4 AI connector and own AI | MCP server at `/mcp` (10 tools, bearer tokens), bring-your-own Anthropic or OpenAI key: `apps/api/src/mcp.ts`, `ai.ts` | Passing: MCP protocol and stubbed provider |
+| B5 Timing and pay | Offer window learned from your own stage history; pay benchmarks from H-1B wage data: `packages/core/src/timing.ts`, `jobs/my_career_agent_jobs/pay_lca.py` | Passing: TS and Python |
+| B6 Billing and privacy | Stripe Checkout and Portal, webhook (off for the free beta); draft privacy notice and DPIA in `docs/privacy/` | Passing: signature and gating tests |
+| B7 UK and Canada | Home Office sponsor register, ESDC LMIA list, country rules and currencies: `packages/core/src/countries.ts`, `jobs/my_career_agent_jobs/uk_ca_sponsors.py` | Passing: TS and Python |
+
 ## The web app
 
-Open the Worker URL and sign in with your `MCA_TOKEN`. Pages: **Today** (build and review the
-queue, referrals, approve or skip), **Packet** (copy-assist fields, free-text answers with
-measured lengths and fact checks, status), **Tracker**, **Profile** (facts, targets, languages,
-work authorization, tiers and blacklist), **Answers** (answer bank), **Connections** (LinkedIn
-export import) and **Score a job**.
+Open the Worker URL. Beta users sign up with an invite code. The POC account signs in with
+**Sign in with an access token** using `MCA_TOKEN`, then adds an email and password in
+Settings > Account. A first-run setup covers work authorization, target roles, experience
+(paste a resume and confirm each statement), languages, essential answers and an optional
+LinkedIn import.
 
-Try it without any accounts: `npx tsx scripts/dev-local.mts`, then open http://localhost:8788.
-It runs the real app on an in-memory database with four demo companies.
+- **Today**: the offer-window strip, then the day's queue. Approve, skip, ask for referrals, open the packet.
+- **Applications**: a transit map of live processes converging on the offer window. Offers expected
+  early or late stop short of it. Below the map, a filterable, sortable table with notes and full history.
+- **Packet**: tailored resume downloads with the readability check, copy-into-form fields,
+  free-text answers (optionally drafted with your own AI key) and status.
+- **Follow-ups**: drafts due now, plus your forwarding address and recent employer emails.
+- **Network**, **Profile** and **Settings**: the answer bank, work authorization, companies,
+  connectors, your AI key, plan and account.
+
+The visual design follows `apps/api/DESIGN.md` (built with Impeccable), and the UX strategy
+follows `docs/ux/strategy.md` (built with Intent).
+
+Try it without any accounts: run `npx tsx scripts/dev-local.mts`, then open http://localhost:8788
+and create an account (no invite needed locally). It runs the real app on an in-memory database
+with eight demo companies.
 
 ## Not built yet
 
-- Beta: Better Auth and OAuth for MCP (B1), resume rendering (B2), inbound email and follow-ups
-  (B3), MCP connector (B4), timing and pay (B5), billing (B6), UK and Canada packs (B7).
-- UK, Canada and Netherlands country packs; entity resolution beyond exact normalised names.
+- OAuth for MCP, so claude.ai web connectors can connect. Bearer tokens work in desktop and CLI clients.
+- Email forwarding needs a domain with Cloudflare Email Routing (see DEPLOY.md).
+- Legal review of the privacy notice and terms; controller details.
+- Netherlands and other EU country packs; entity resolution beyond exact normalised names.
 - ESCO skills import (a small cross-occupation starter dictionary ships in `packages/core/src/skills.ts`).
 
 ## Cost

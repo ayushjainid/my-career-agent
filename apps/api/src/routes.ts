@@ -1,5 +1,5 @@
-// HTTP API. The same operations back the web app, the copy-assist panel and (next milestone)
-// the MCP connector, so every client sees one contract.
+// HTTP API. The same operations back the web app, the copy-assist panel and the MCP connector,
+// so every client sees one contract.
 
 import {
   combineGates,
@@ -20,9 +20,15 @@ import { Hono, type MiddlewareHandler } from "hono";
 import type { AppBindings } from "./env.js";
 import { appDb } from "./lib/db.js";
 import { neonTenantDb, stmt } from "./lib/tenant.js";
+import { account, authPublic, resolveUser } from "./auth.js";
 import { packets } from "./packets.js";
 import { profile } from "./profile.js";
 import { referrals } from "./referrals.js";
+import { resume } from "./resume.js";
+import { followups } from "./followupsApi.js";
+import { ai } from "./ai.js";
+import { timing } from "./timingApi.js";
+import { billing, stripeWebhook } from "./billing.js";
 import { canTransition, isAppState, type AppState } from "./lib/transitions.js";
 
 export const api = new Hono<AppBindings>();
@@ -51,27 +57,52 @@ export function userForToken(header: string | undefined, tokens: string | undefi
   return found;
 }
 
-/**
- * Authentication. POC (loop P0): a long random API token per user, held as a Worker secret.
- * Beta (loop B1) replaces this with Better Auth sessions and OAuth for MCP. DEV_MODE also
- * accepts an explicit user header for local work; it must never be true in a deployed Worker.
- */
-export const requireUser: MiddlewareHandler<AppBindings> = async (c, next) => {
-  const user =
-    userForToken(c.req.header("authorization"), c.env.API_TOKENS) ??
-    (c.env.DEV_MODE === "true" ? (c.req.header("x-dev-user") ?? null) : null);
-  if (!user) return c.json({ error: "unauthenticated" }, 401);
-  c.set("userId", user);
+/** Every /api request gets the database seam; tests swap in an in-process Postgres. */
+const withDb: MiddlewareHandler<AppBindings> = async (c, next) => {
   c.set("db", c.env.TEST_DB ?? neonTenantDb(appDb(c.env.DATABASE_URL)));
   await next();
 };
 
-api.get("/health", (c) => c.json({ ok: true, service: "my-career-agent-api", version: "0.1.0" }));
+/**
+ * Authentication: a session cookie (people), a personal access token (agents and the MCP
+ * connector), or a configured POC API token. DEV_MODE also accepts an explicit user header for
+ * local work; it must never be true in a deployed Worker.
+ *
+ * Cookie-authenticated writes must come from this site's own pages: browsers send Origin on
+ * every cross-site write, so a mismatched or cross-site request is refused (CSRF).
+ */
+export const requireUser: MiddlewareHandler<AppBindings> = async (c, next) => {
+  const r = await resolveUser(c.env, c.get("db"), c.req.header("cookie"), c.req.header("authorization"), (h) =>
+    userForToken(h, c.env.API_TOKENS) ?? (c.env.DEV_MODE === "true" ? (c.req.header("x-dev-user") ?? null) : null),
+  );
+  if (!r) return c.json({ error: "unauthenticated" }, 401);
+  if (r.via === "session" && !["GET", "HEAD", "OPTIONS"].includes(c.req.method)) {
+    const origin = c.req.header("origin");
+    const site = c.req.header("sec-fetch-site");
+    if ((origin && origin !== new URL(c.req.url).origin) || (site && !["same-origin", "none"].includes(site)))
+      return c.json({ error: "cross-site request refused" }, 403);
+  }
+  c.set("userId", r.userId);
+  c.set("authVia", r.via);
+  if (r.sessionHash) c.set("sessionHash", r.sessionHash);
+  await next();
+};
 
+api.get("/health", (c) => c.json({ ok: true, service: "my-career-agent-api", version: "0.2.0" }));
+
+api.use("/*", withDb);
+api.route("/", authPublic);
+api.route("/", stripeWebhook);
 api.use("/*", requireUser);
+api.route("/", account);
 api.route("/", profile);
 api.route("/", referrals);
 api.route("/", packets);
+api.route("/", resume);
+api.route("/", followups);
+api.route("/", ai);
+api.route("/", timing);
+api.route("/", billing);
 
 const SENIORITIES: Seniority[] = ["entry", "mid", "senior", "lead", "executive"];
 
@@ -145,10 +176,6 @@ api.post("/applications/:id/status", async (c) => {
           INSERT INTO mca.application_event (user_id, application_id, kind, payload)
           SELECT $4, u.id, 'state_change', $5::jsonb FROM u RETURNING application_id`,
       id, to, from, userId, JSON.stringify({ from, to, note: body.note ?? null })),
-    // Follow-ups may only restate what the employer received: freeze it at submission.
-    stmt(`UPDATE mca.application_answer SET submitted_text = concat_ws(E'\\n', text, short_text)
-          WHERE application_id = $1 AND $2::text = 'submitted'
-            AND EXISTS (SELECT 1 FROM mca.application WHERE id = $1 AND state = 'submitted')`, id, to),
   ]);
   if (!changed.length) return c.json({ error: "the application changed meanwhile; reload and retry" }, 409);
   return c.json({ ok: true, state: to });

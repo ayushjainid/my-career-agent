@@ -46,6 +46,8 @@ export interface Fact {
   startDate?: string | null; // ISO date
   endDate?: string | null; // ISO date; null = current
   verified: boolean;
+  /** Employer, school or issuer, when the fact belongs to one. */
+  org?: string | null;
 }
 
 export interface Profile {

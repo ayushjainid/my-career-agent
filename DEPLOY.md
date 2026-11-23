@@ -1,4 +1,4 @@
-# Deploying the POC
+# Deploying My Career Agent
 
 Every push to `main` deploys itself (`.github/workflows/deploy.yml`): tests, database
 migrations, the app's database logins, the Worker, then a smoke test against the live URL.
@@ -34,8 +34,8 @@ from the owner string at deploy time (`scripts/db-urls.mjs`); there is nothing e
 
 ## 4. Deploy (loop P0)
 
-Actions > **Deploy POC** > Run workflow. The run summary shows the Worker URL. P0 is done when the
-last job, `smoke`, passes. Use the URL and `MCA_TOKEN` for the README's profile commands.
+Actions > **Deploy** > Run workflow. The run summary shows the Worker URL. The deploy is good when the
+last job, `smoke`, passes.
 
 ## 5. Companies and sponsor data (loop P1)
 
@@ -47,6 +47,71 @@ last job, `smoke`, passes. Use the URL and `MCA_TOKEN` for the README's profile 
 
 ## Rotating credentials
 
-- Database: reset the owner password in Neon, update `DATABASE_OWNER_URL`, re-run **Deploy POC**.
-  The app logins get new passwords on the same run.
-- API key: change `MCA_TOKEN` and re-run **Deploy POC**.
+- Database: reset the owner password in Neon, update `DATABASE_OWNER_URL`, re-run **Deploy**.
+  The app logins get new passwords on the same run. `AI_KEY_SECRET` is derived from the same string,
+  so people who saved their own AI key are asked to add it again.
+- API key: change `MCA_TOKEN` and re-run **Deploy**.
+
+## Beta accounts (loop B1)
+
+Sign-up is invite-only (`INVITE_REQUIRED = "true"` in `apps/api/wrangler.toml`).
+
+1. Open the Worker URL, choose **Sign in with an access token**, and paste `MCA_TOKEN`. That's
+   the `founder` account, which holds the data you set up during the POC.
+2. In **Settings > Account**, add an email and password. From then on, sign in normally.
+3. Create invite codes for beta users (the founder is the admin through `ADMIN_USER_IDS`):
+
+   ```sh
+   curl -s -X POST "$MCA_URL/api/admin/invites" -H "authorization: Bearer $MCA_TOKEN" \
+     -H 'content-type: application/json' -d '{"count": 5}'
+   ```
+
+## Database owner needs BYPASSRLS
+
+The account, invite and email-routing functions run as the table owner over row-level-security
+tables. Neon's owner role has `BYPASSRLS`; `scripts/migrate.sh` stops with the fix
+(`ALTER ROLE <owner> BYPASSRLS`) if yours doesn't.
+
+## Sign-in cost and the Workers plan
+
+Passwords are hashed with PBKDF2-SHA256. `PBKDF2_ITERATIONS = "50000"` takes about 7 ms of CPU,
+inside the Free plan's 10 ms per request. On Workers Paid, raise it to `"100000"`. Existing
+passwords are re-hashed at the next sign-in.
+
+## Email forwarding (loop B3)
+
+Forwarding addresses need a domain on Cloudflare:
+
+1. Add a domain to Cloudflare and turn on **Email Routing** for it, or use a subdomain such as
+   `in.example.com`.
+2. Create a catch-all rule: **Send to a Worker**, choosing `my-career-agent-api`.
+3. Set `INBOUND_DOMAIN` in `apps/api/wrangler.toml` to that domain and push.
+
+Until then, the Follow-ups page says forwarding isn't switched on, and stages are updated by hand.
+
+## AI connectors (loop B4)
+
+Each user creates a token in **Settings > AI connectors**. Any MCP client that supports HTTP servers
+with headers can use it:
+
+```json
+{ "mcpServers": { "my-career-agent": { "type": "http", "url": "https://<worker-url>/mcp",
+  "headers": { "Authorization": "Bearer mca_pat_..." } } } }
+```
+
+claude.ai web connectors need OAuth, which comes later. Connectors can't mark an application
+submitted.
+
+## Billing (loop B6)
+
+Billing is built but off for the free beta. To turn it on, set `BILLING_ENABLED = "true"`,
+`STRIPE_PRICE_ID` and `FREE_DAILY_LIMIT` as vars, then add the `STRIPE_SECRET_KEY` and
+`STRIPE_WEBHOOK_SECRET` secrets and point a Stripe webhook at `/api/stripe/webhook`. The privacy
+notice in the app and in `docs/privacy/` is a draft. It needs the controller's name and contact
+details and a legal review before the beta opens widely.
+
+## UK and Canada sponsor data (loop B7)
+
+Run **UK and Canada sponsor data** with the current register file URLs: the Home Office register of
+licensed sponsors (CSV) and ESDC's positive LMIA employer list. It also runs weekly when the
+`UK_REGISTER_URL` and `CA_LMIA_URL` repository variables are set.

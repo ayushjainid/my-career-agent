@@ -20,6 +20,13 @@ export function pgliteTenantDb(db: PGlite): TenantDb {
         for (const s of stmts) out.push((await tx.query<Row>(s.text, s.params ?? [])).rows);
         return out;
       }),
+    asSystem: (stmts) =>
+      db.transaction(async (tx) => {
+        await tx.query("SET LOCAL ROLE mca_app");
+        const out: Row[][] = [];
+        for (const s of stmts) out.push((await tx.query<Row>(s.text, s.params ?? [])).rows);
+        return out;
+      }),
   };
 }
 
@@ -34,6 +41,7 @@ export async function harness() {
     INGEST_BOARDS_PER_RUN: "1",
     INBOUND_DOMAIN: "in.example",
     API_TOKENS: `alice:${TOKEN_A},bob:${TOKEN_B}`,
+    ADMIN_USER_IDS: "alice",
     ASSETS: { fetch: async () => new Response("asset") } as unknown as Fetcher,
     TEST_DB: pgliteTenantDb(pg),
   };
@@ -46,6 +54,17 @@ export async function harness() {
       }),
       env,
     );
+  /** A browser-like request: cookie auth, same-origin by default. */
+  const browser = (method: string, path: string, cookie: string | null, body?: unknown, origin = "http://mca.test") =>
+    app.fetch(
+      new Request(`http://mca.test/api${path}`, {
+        method,
+        headers: { "content-type": "application/json", origin, ...(cookie ? { cookie } : {}) },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      }),
+      env,
+    );
+  const cookieOf = (r: Response) => (r.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
   const json = async (r: Response) => (await r.json()) as Record<string, any>;
 
   /** Adds a company, one open US job and sponsor filings; returns their ids. */
@@ -81,5 +100,5 @@ export async function harness() {
     return r.ids as string[];
   };
 
-  return { pg, env, call, json, addCompany, setupProfile };
+  return { pg, env, call, browser, cookieOf, json, addCompany, setupProfile };
 }

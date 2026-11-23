@@ -72,3 +72,26 @@ def test_cli_writes_csv(tmp_path):
     assert main(["--lca", str(f), "--out", str(tmp_path / "out")]) == 0
     text = (tmp_path / "out" / "lca.summary.csv").read_text()
     assert ",EXAMPLE," in text and '"{""II"": 1}"' in text
+
+
+def test_title_families_match_typescript_cases():
+    import json
+    from my_career_agent_jobs.titles import title_family
+    cases = json.loads((Path(__file__).parents[2] / "packages/core/test/fixtures/title_cases.json").read_text())
+    for raw, expected in cases:
+        assert title_family(raw) == expected, raw
+
+
+def test_pay_benchmarks_annualise_and_respect_minimums(tmp_path):
+    from my_career_agent_jobs.pay_lca import annualise, summarise_pay
+    assert annualise("$60.00", "Hour") == 124800
+    assert annualise("120,000", "Year") == 120000
+    assert annualise("5", "Year") is None
+    header = ["CASE_STATUS", "VISA_CLASS", "EMPLOYER_NAME", "JOB_TITLE", "WAGE_RATE_OF_PAY_FROM", "WAGE_UNIT_OF_PAY", "DECISION_DATE"]
+    rows = [["Certified", "H-1B", "Acme Inc.", t, w, "Year", "2026-06-30"]
+            for t, w in [("Software Engineer", 120000), ("Senior Software Engineer", 150000), ("SWE II", 140000), ("Data Engineer", 130000)]]
+    rows.append(["Denied", "H-1B", "Acme Inc.", "Software Engineer", 999999, "Year", "2026-06-30"])
+    out = summarise_pay(write_xlsx(tmp_path / "lca.xlsx", header, rows))
+    acme = [r for r in out if r["employer_norm"] == "ACME"]
+    assert acme == [{"country": "US", "employer_norm": "ACME", "title_family": "software engineer", "n": 3, "p25": 130000,
+                     "p50": 140000, "p75": 145000, "currency": "USD", "source_file": "lca.xlsx", "period_end": "2026-06-30"}]

@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { Env } from "../src/env.js";
 import { app } from "../src/index.js";
-import type { Row, TenantDb } from "../src/lib/tenant.js";
+import { pgliteTenantDb } from "./harness.js";
 import { userForToken } from "../src/routes.js";
 
 const TOKEN_A = "a".repeat(20) + "-token-alice";
@@ -15,18 +15,6 @@ const TOKEN_B = "b".repeat(20) + "-token-bob";
 let pg: PGlite;
 let env: Env;
 
-function pgliteTenantDb(db: PGlite): TenantDb {
-  return {
-    asUser: (userId, stmts) =>
-      db.transaction(async (tx) => {
-        await tx.query("SET LOCAL ROLE mca_app");
-        await tx.query("SELECT set_config('app.user_id', $1, true)", [userId]);
-        const out: Row[][] = [];
-        for (const s of stmts) out.push((await tx.query<Row>(s.text, s.params ?? [])).rows);
-        return out;
-      }),
-  };
-}
 
 const call = (method: string, path: string, token: string | null, body?: unknown) =>
   app.fetch(

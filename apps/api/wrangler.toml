@@ -17,7 +17,10 @@ crons = ["17 */3 * * *", "5 6 * * *"]  # ingest every 3 hours; daily queue at 06
 [vars]
 DEV_MODE = "false"
 INGEST_BOARDS_PER_RUN = "40"
-INBOUND_DOMAIN = "in.mycareeragent.example"
+INBOUND_DOMAIN = "in.mycareeragent.example"   # set to a real domain once Email Routing is on
+INVITE_REQUIRED = "true"                        # beta: sign-up needs an invite code
+ADMIN_USER_IDS = "founder"                      # may create invite codes (POST /api/admin/invites)
+PBKDF2_ITERATIONS = "50000"                     # ~7 ms CPU per sign-in, inside the Free plan's 10 ms; raise to 100000 on Workers Paid
 
 # Resumes and exports. Create with: wrangler r2 bucket create my-career-agent-files --jurisdiction eu
 # [[r2_buckets]]
@@ -28,3 +31,5 @@ INBOUND_DOMAIN = "in.mycareeragent.example"
 # Secrets (set with `wrangler secret put`):
 #   DATABASE_URL         Neon connection string for the mca_app login role
 #   INGEST_DATABASE_URL  Neon connection string for the mca_ingest login role
+#   API_TOKENS           founder:<MCA_TOKEN>, the POC token sign-in
+#   AI_KEY_SECRET        encrypts people's own AI keys (derived by scripts/db-urls.mjs)

@@ -13,6 +13,7 @@ import {
 import { Hono } from "hono";
 import type { AppBindings } from "./env.js";
 import { stmt, type Row } from "./lib/tenant.js";
+import { payBenchmarks } from "./timingApi.js";
 
 export const packets = new Hono<AppBindings>();
 
@@ -152,7 +153,7 @@ packets.get("/packets/:jobId", async (c) => {
   if (!UUID.test(jobId)) return c.json({ error: "bad job id" }, 400);
   const [jobs = [], bank = [], apps = [], answers = [], facts = []] = await c.get("db").asUser(c.get("userId"), [
     stmt(`SELECT j.id, j.title, j.apply_url, j.ats_vendor, j.location_text, j.remote_type, j.pay_min, j.pay_max, j.pay_currency,
-                 j.integrity, co.name AS company
+                 j.integrity, j.company_id, co.name AS company
           FROM mca.job j JOIN mca.company co ON co.id = j.company_id WHERE j.id = $1`, jobId),
     stmt(`SELECT question_key, answer, sensitive FROM mca.answer_bank_entry ORDER BY question_key`),
     stmt(`SELECT a.id, a.state, a.fit_score, a.gate_verdict, a.gates, a.notes, ct.full_name AS referral_name
@@ -182,8 +183,11 @@ packets.get("/packets/:jobId", async (c) => {
     ...missingSensitive.map((l) => `Answer bank is missing: ${l}`),
   ];
   const integrity = job.integrity as { level?: string; verdict?: string } | null;
+  const [[jobCo] = []] = await c.get("db").asUser(c.get("userId"), [stmt(`SELECT company_id FROM mca.job WHERE id = $1`, jobId)]);
+  const pay = await payBenchmarks(c.get("db"), c.get("userId"), [{ companyId: String(jobCo?.company_id), title: String(job.title) }]);
   return c.json({
     job: { ...job, integrity: integrity ? { level: integrity.level, verdict: integrity.verdict } : null },
+    payBenchmark: pay.values().next().value ?? null,
     application: apps[0] ?? null,
     fields: bank.map((b) => ({
       key: b.question_key,
@@ -192,7 +196,12 @@ packets.get("/packets/:jobId", async (c) => {
       sensitive: b.sensitive,
     })),
     answers: reviewed,
-    resume: null, // resume rendering is beta loop B2; attach your own file for now
+    // Tailored to this job from verified facts; the JSON form carries the ATS text check.
+    resume: {
+      pdf: `/api/resume?jobId=${jobId}&format=pdf`,
+      docx: `/api/resume?jobId=${jobId}&format=docx`,
+      check: `/api/resume?jobId=${jobId}&format=json`,
+    },
     ready: blockers.length === 0,
     blockers,
     rules: [
@@ -210,16 +219,45 @@ packets.get("/applications", async (c) => {
   const states = state ? state.split(",").filter((s) => /^[a-z_]+$/.test(s)).slice(0, 11) : null;
   const [rows = []] = await c.get("db").asUser(c.get("userId"), [
     stmt(
-      `SELECT a.id, a.state, a.planned_date::text AS planned_date, a.submitted_at, a.fit_score, a.gate_verdict,
-              j.id AS job_id, j.title, j.apply_url, co.name AS company, ct.full_name AS referral_name,
-              (SELECT max(created_at) FROM mca.application_event e WHERE e.application_id = a.id) AS last_event_at
+      `SELECT a.id, a.state, a.planned_date::text AS planned_date, a.submitted_at, a.fit_score, a.gate_verdict, a.notes,
+              j.id AS job_id, j.title, j.apply_url, j.location_text, j.company_id, co.name AS company, ct.full_name AS referral_name,
+              pref.tier,
+              (SELECT max(created_at) FROM mca.application_event e WHERE e.application_id = a.id) AS last_event_at,
+              (SELECT jsonb_object_agg(s.to_state, s.at) FROM (
+                 SELECT e.payload->>'to' AS to_state, min(e.created_at) AS at FROM mca.application_event e
+                 WHERE e.application_id = a.id AND e.kind = 'state_change' AND e.payload->>'to' IN ('submitted','screen','interview','offer')
+                 GROUP BY 1) s) AS reached
        FROM mca.application a JOIN mca.job j ON j.id = a.job_id JOIN mca.company co ON co.id = j.company_id
        LEFT JOIN mca.contact ct ON ct.id = a.referral_contact_id
+       LEFT JOIN mca.company_preference pref ON pref.company_id = j.company_id
        WHERE $1::text[] IS NULL OR a.state = ANY ($1::text[])
        ORDER BY coalesce((SELECT max(created_at) FROM mca.application_event e WHERE e.application_id = a.id), a.created_at) DESC
        LIMIT 500`,
       states,
     ),
+  ]);
+  return c.json({ items: rows });
+});
+
+/** The person's own note on an application. Plain text, at most 2,000 characters. */
+packets.patch("/applications/:id/notes", async (c) => {
+  const id = c.req.param("id");
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return c.json({ error: "bad application id" }, 400);
+  const b = (await c.req.json().catch(() => ({}))) as { notes?: unknown };
+  if (typeof b.notes !== "string") return c.json({ error: "notes must be text" }, 400);
+  if (b.notes.length > 2000) return c.json({ error: "Keep notes under 2,000 characters." }, 400);
+  const [rows = []] = await c.get("db").asUser(c.get("userId"), [
+    stmt(`UPDATE mca.application SET notes = nullif($2, '') WHERE id = $1 RETURNING id`, id, b.notes.trim()),
+  ]);
+  return rows.length ? c.json({ ok: true }) : c.json({ error: "application not found" }, 404);
+});
+
+/** The full history of one application, oldest first. */
+packets.get("/applications/:id/events", async (c) => {
+  const id = c.req.param("id");
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return c.json({ error: "bad application id" }, 400);
+  const [rows = []] = await c.get("db").asUser(c.get("userId"), [
+    stmt(`SELECT kind, payload, created_at FROM mca.application_event WHERE application_id = $1 ORDER BY created_at, id`, id),
   ]);
   return c.json({ items: rows });
 });

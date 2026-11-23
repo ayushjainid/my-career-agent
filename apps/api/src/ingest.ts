@@ -1,7 +1,7 @@
 // Scheduled ingestion: fetch a batch of company boards, diff against the catalog, write changes.
 // Runs as the mca_ingest role (catalog only; no tenant data).
 
-import { compactIntegrity, extractRequirements, type AtsVendor, type NormalizedJob } from "@my-career-agent/core";
+import { compactIntegrity, extractRequirements, type AtsVendor, type NormalizedJob, inferCountry } from "@my-career-agent/core";
 import { diffBoard, type StoredJobKey } from "./ats/diff.js";
 import { fetchBoard } from "./ats/adapters.js";
 import type { Env } from "./env.js";
@@ -30,6 +30,7 @@ export function toRecord(job: NormalizedJob) {
     ats_job_id: job.atsJobId,
     title: job.title.slice(0, 300),
     location_text: job.locationText,
+    country: inferCountry(job.locationText),
     remote_type: job.remoteType,
     pay_min: job.pay?.min ?? null,
     pay_max: job.pay?.max ?? null,
@@ -39,7 +40,7 @@ export function toRecord(job: NormalizedJob) {
     posted_at: job.postedAt,
     apply_url: job.applyUrl,
     description_text: job.descriptionText.slice(0, 50_000),
-    requirements: { mustHave: req.mustHave, niceToHave: req.niceToHave, minYears: req.minYears, seniority: req.seniority, extractor: "det-1" },
+    requirements: { mustHave: req.mustHave, niceToHave: req.niceToHave, minYears: req.minYears, seniority: req.seniority, sponsorshipSignal: req.sponsorshipSignal, extractor: "det-1" },
     sponsorship_text_signal: req.sponsorshipSignal,
     integrity: job.integrity ? compactIntegrity(job.integrity) : null,
   };
@@ -56,19 +57,19 @@ async function ingestCompany(sql: Sql, c: CompanyRow, report: IngestReport): Pro
   const queries = [];
   if (upserts.length) {
     queries.push(sql`
-      INSERT INTO mca.job (company_id, ats_vendor, ats_job_id, title, location_text, remote_type,
+      INSERT INTO mca.job (company_id, ats_vendor, ats_job_id, title, location_text, country, remote_type,
         pay_min, pay_max, pay_currency, pay_period, pay_source, posted_at, apply_url,
         description_text, requirements, sponsorship_text_signal, integrity, status, last_seen_at)
-      SELECT ${c.id}::uuid, r.ats_vendor, r.ats_job_id, r.title, r.location_text, r.remote_type,
+      SELECT ${c.id}::uuid, r.ats_vendor, r.ats_job_id, r.title, r.location_text, r.country, r.remote_type,
         r.pay_min, r.pay_max, r.pay_currency, r.pay_period, r.pay_source, r.posted_at, r.apply_url,
         r.description_text, r.requirements, r.sponsorship_text_signal, r.integrity, 'open', now()
       FROM jsonb_to_recordset(${JSON.stringify(upserts)}::jsonb) AS r(
-        ats_vendor text, ats_job_id text, title text, location_text text, remote_type text,
+        ats_vendor text, ats_job_id text, title text, location_text text, country text, remote_type text,
         pay_min numeric, pay_max numeric, pay_currency text, pay_period text, pay_source text,
         posted_at timestamptz, apply_url text, description_text text, requirements jsonb,
         sponsorship_text_signal text, integrity jsonb)
       ON CONFLICT (ats_vendor, company_id, ats_job_id) DO UPDATE SET
-        title = EXCLUDED.title, location_text = EXCLUDED.location_text, remote_type = EXCLUDED.remote_type,
+        title = EXCLUDED.title, location_text = EXCLUDED.location_text, country = EXCLUDED.country, remote_type = EXCLUDED.remote_type,
         pay_min = EXCLUDED.pay_min, pay_max = EXCLUDED.pay_max, pay_currency = EXCLUDED.pay_currency,
         pay_period = EXCLUDED.pay_period, pay_source = EXCLUDED.pay_source, apply_url = EXCLUDED.apply_url,
         description_text = EXCLUDED.description_text, requirements = EXCLUDED.requirements,

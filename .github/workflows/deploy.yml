@@ -1,4 +1,4 @@
-name: Deploy POC
+name: Deploy
 
 # Every push to main: test, migrate the database, deploy the Worker, then smoke-test it.
 # A failed step stops everything after it, so a broken build never reaches the database or users.
@@ -97,6 +97,7 @@ jobs:
             DATABASE_URL
             INGEST_DATABASE_URL
             API_TOKENS
+            AI_KEY_SECRET
         env:
           API_TOKENS: founder:${{ secrets.MCA_TOKEN }}
 

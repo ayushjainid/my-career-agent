@@ -2,6 +2,8 @@ import { Hono } from "hono";
 import { handleEmail } from "./email.js";
 import type { AppBindings, Env } from "./env.js";
 import { runIngest } from "./ingest.js";
+import { mountMcp } from "./mcp.js";
+import { dailyLimit } from "./billing.js";
 import { appDb } from "./lib/db.js";
 import { neonTenantDb } from "./lib/tenant.js";
 import { runQueueForUser } from "./queue.js";
@@ -17,7 +19,7 @@ async function runAllQueues(env: Env): Promise<void> {
   const today = new Date();
   for (const { user_id } of users) {
     try {
-      const r = await runQueueForUser(db, user_id, today);
+      const r = await runQueueForUser(db, user_id, today, await dailyLimit(env, db, user_id));
       console.log(JSON.stringify({ event: "queue", user: user_id, queued: r?.queue.length ?? 0, excluded: r?.excluded.length ?? 0 }));
     } catch (err) {
       console.error(JSON.stringify({ event: "queue_error", user: user_id, error: err instanceof Error ? err.message : String(err) }));
@@ -27,6 +29,7 @@ async function runAllQueues(env: Env): Promise<void> {
 
 export const app = new Hono<AppBindings>();
 app.route("/api", api);
+mountMcp(app);
 // Everything else is the static web app (served from ./public by the assets binding).
 app.all("*", (c) => c.env.ASSETS.fetch(c.req.raw));
 

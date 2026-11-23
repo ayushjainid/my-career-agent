@@ -8,6 +8,14 @@ set -euo pipefail
 DATABASE_OWNER_URL="$(printf %s "$DATABASE_OWNER_URL" | tr -d '[:space:]')"
 cd "$(dirname "$0")/../db/migrations"
 
+# Account, token and nightly-queue functions run with the owner's rights across users, so the
+# owner must bypass row-level security (every Neon project's owner does since August 2023).
+ok=$(psql "$DATABASE_OWNER_URL" -tAc "SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = current_user")
+if [ "$ok" != "t" ]; then
+  echo "The database owner role lacks BYPASSRLS. Run as an admin: ALTER ROLE <owner> BYPASSRLS;" >&2
+  exit 1
+fi
+
 psql "$DATABASE_OWNER_URL" -v ON_ERROR_STOP=1 -q -c \
   "CREATE TABLE IF NOT EXISTS public.mca_migrations (name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())"
 

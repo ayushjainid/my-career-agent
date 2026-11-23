@@ -10,3 +10,9 @@ __pycache__/
 jobs/out/
 *.xlsx
 !jobs/tests/fixtures/*.xlsx
+
+# Design tooling: skills are installed per machine; review captures and scratch stay local
+.claude/skills/
+apps/api/.impeccable/review/
+apps/api/.impeccable/mocks/
+apps/api/.impeccable/questions/

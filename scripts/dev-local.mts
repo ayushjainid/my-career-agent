@@ -15,7 +15,7 @@ const PORT = Number(process.env.PORT ?? 8788);
 const TOKEN = "local-dev-token-0000000000000000";
 const root = fileURLToPath(new URL("..", import.meta.url));
 const publicDir = join(root, "apps/api/public");
-const TYPES: Record<string, string> = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png" };
+const TYPES: Record<string, string> = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png", ".woff2": "font/woff2", ".txt": "text/plain; charset=utf-8" };
 
 const pg = new PGlite();
 for (const f of readdirSync(join(root, "db/migrations")).filter((f) => f.endsWith(".sql")).sort())
@@ -27,6 +27,10 @@ const demo: Array<[string, string]> = [
   ["Globex", "Requirements\n- Python\n- Spark\n- SQL\nWe sponsor visas."],
   ["Initech", "Requirements\n- Python\n- SQL\nFluent German required."],
   ["Hooli", "Requirements\n- 7+ years of Python\n- Go\n- Kafka"],
+  ["Northwind", "Requirements\n- Python\n- SQL\n- Airflow"],
+  ["Contoso", "Requirements\n- Python\n- SQL\n- dbt"],
+  ["Fabrikam", "Requirements\n- Python\n- AWS\n- SQL"],
+  ["Tailspin", "Requirements\n- Python\n- SQL\n- Snowflake"],
 ];
 for (const [i, [name, desc]] of demo.entries()) {
   const { rows } = await pg.query<{ id: string }>(
@@ -52,6 +56,13 @@ const db: TenantDb = {
       for (const s of stmts) out.push((await tx.query<Row>(s.text, s.params ?? [])).rows);
       return out;
     }),
+  asSystem: (stmts) =>
+    pg.transaction(async (tx) => {
+      await tx.query("SET LOCAL ROLE mca_app");
+      const out: Row[][] = [];
+      for (const s of stmts) out.push((await tx.query<Row>(s.text, s.params ?? [])).rows);
+      return out;
+    }),
 };
 
 const assets = {
@@ -69,6 +80,7 @@ const assets = {
 const env: Env = {
   DATABASE_URL: "local", INGEST_DATABASE_URL: "local", DEV_MODE: "false", INGEST_BOARDS_PER_RUN: "0",
   INBOUND_DOMAIN: "in.localhost", API_TOKENS: `me:${TOKEN}`, ASSETS: assets, TEST_DB: db,
+  INVITE_REQUIRED: "false", PBKDF2_ITERATIONS: "20000", AI_KEY_SECRET: "local-dev-only-ai-key-secret-0123456789",
 };
 
 createServer(async (req, res) => {

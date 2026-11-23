@@ -86,12 +86,19 @@ describe("tenant isolation", () => {
         AND EXISTS (SELECT 1 FROM information_schema.columns col
                     WHERE col.table_schema = 'mca' AND col.table_name = c.relname
                       AND col.column_name = 'user_id')
-        AND c.relname <> 'inbound_route'`);
+        AND c.relname NOT IN ('inbound_route', 'account', 'session')`);
     expect(res.rows.length).toBeGreaterThanOrEqual(10);
     for (const row of res.rows) {
       expect(row.rls, `${row.table_name} has RLS`).toBe(true);
       expect(row.forced, `${row.table_name} forces RLS`).toBe(true);
     }
+  });
+});
+
+describe("0005: account tables are unreachable except through definer functions", () => {
+  it("refuses direct reads of accounts, sessions, invites and login failures", async () => {
+    for (const t of ["account", "session", "invite", "login_failure"])
+      await expect(asUser("alice", `SELECT * FROM mca.${t}`), t).rejects.toThrow(/permission denied/);
   });
 });
 
