@@ -3,7 +3,7 @@
 
 import { compactIntegrity, extractRequirements, postingSignals, type AtsVendor, type NormalizedJob, inferCountry } from "@my-career-agent/core";
 import { diffBoard, type StoredJobKey } from "./ats/diff.js";
-import { fetchBoard } from "./ats/adapters.js";
+import { fetchAny, NEEDS_KNOWN, SUPPORTED_VENDORS } from "./ats/adapters.js";
 import type { Env } from "./env.js";
 import { appDb, type Sql } from "./lib/db.js";
 
@@ -72,11 +72,16 @@ function upsertJobs(sql: Sql, companyId: string, rows: ReturnType<typeof toRecor
 }
 
 async function ingestCompany(sql: Sql, c: CompanyRow, report: IngestReport): Promise<void> {
-  const fresh = await fetchBoard({ vendor: c.ats_vendor, board: c.ats_board, region: c.ats_region });
   const stored = (await sql`
     SELECT ats_job_id AS "atsJobId", status, first_seen_at AS "firstSeenAt"
     FROM mca.job WHERE company_id = ${c.id}`) as StoredJobKey[];
-  const diff = diffBoard(fresh, stored.map((s) => ({ ...s, firstSeenAt: new Date(s.firstSeenAt).toISOString() })));
+  // Paged systems skip detail requests for jobs already stored and still open.
+  const known = NEEDS_KNOWN.has(c.ats_vendor) ? new Set(stored.filter((s) => s.status !== "closed").map((s) => s.atsJobId)) : undefined;
+  const got = await fetchAny({ vendor: c.ats_vendor, board: c.ats_board, region: c.ats_region }, { known });
+  const diff = diffBoard(got.jobs, stored.map((s) => ({ ...s, firstSeenAt: new Date(s.firstSeenAt).toISOString() })));
+  // Still listed (just not re-read) is not closed; an incomplete listing closes nothing.
+  const listed = new Set(got.touch);
+  diff.closedIds = got.complete ? diff.closedIds.filter((id) => !listed.has(id)) : [];
 
   const upserts = [...diff.added, ...diff.stillOpen, ...diff.reopened].map(toRecord);
   // Large boards (Notion's is ~3 MB) go in chunks: one database request has a size limit. Upserts
@@ -88,13 +93,16 @@ async function ingestCompany(sql: Sql, c: CompanyRow, report: IngestReport): Pro
   if (last.length) queries.push(upsertJobs(sql, c.id, last));
   if (diff.closedIds.length)
     queries.push(sql`UPDATE mca.job SET status = 'closed' WHERE company_id = ${c.id} AND ats_job_id = ANY(${diff.closedIds}::text[])`);
+  if (got.touch.length)
+    queries.push(sql`UPDATE mca.job SET last_seen_at = now(), status = CASE WHEN status = 'stale' THEN 'stale' ELSE 'open' END
+                     WHERE company_id = ${c.id} AND ats_job_id = ANY(${got.touch}::text[])`);
   if (diff.staleIds.length)
     queries.push(sql`UPDATE mca.job SET status = 'stale' WHERE company_id = ${c.id} AND ats_job_id = ANY(${diff.staleIds}::text[])`);
   queries.push(sql`UPDATE mca.company SET last_fetched_at = now() WHERE id = ${c.id}`);
   await sql.transaction(queries);
 
   report.added += diff.added.length + diff.reopened.length;
-  report.updated += diff.stillOpen.length;
+  report.updated += diff.stillOpen.length + got.touch.length;
   report.closed += diff.closedIds.length;
   report.stale += diff.staleIds.length;
 }
@@ -131,7 +139,7 @@ export async function runIngest(env: Env, opts: IngestOptions = {}): Promise<Ing
     UPDATE mca.company SET last_fetched_at = now()
     WHERE id IN (
       SELECT id FROM mca.company
-      WHERE ats_vendor IN ('greenhouse','lever','ashby') AND ats_board IS NOT NULL
+      WHERE ats_vendor = ANY(${[...SUPPORTED_VENDORS]}::text[]) AND ats_board IS NOT NULL
         AND (last_fetched_at IS NULL OR last_fetched_at < now() - make_interval(mins => ${minutes}))
       ORDER BY last_fetched_at NULLS FIRST
       LIMIT ${batch}
@@ -150,6 +158,6 @@ export async function runIngest(env: Env, opts: IngestOptions = {}): Promise<Ing
   const [counts] = (await sql`
     SELECT count(*)::int AS total,
            count(*) FILTER (WHERE last_fetched_at IS NULL OR last_fetched_at < now() - make_interval(mins => ${Math.max(minutes, 1)}))::int AS remaining
-    FROM mca.company WHERE ats_vendor IN ('greenhouse','lever','ashby') AND ats_board IS NOT NULL`) as Array<{ total: number; remaining: number }>;
+    FROM mca.company WHERE ats_vendor = ANY(${[...SUPPORTED_VENDORS]}::text[]) AND ats_board IS NOT NULL`) as Array<{ total: number; remaining: number }>;
   return { ...report, total: counts?.total ?? 0, remaining: counts?.remaining ?? 0 };
 }

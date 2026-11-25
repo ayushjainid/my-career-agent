@@ -1,8 +1,14 @@
 """Seed or update tracked companies from a CSV.
 
 CSV columns: name, ats_vendor, ats_board, domain, ats_region (optional), aliases (optional, ';'-separated)
-Find the board token from a company's careers page, e.g. boards.greenhouse.io/<token>,
-jobs.lever.co/<token>, jobs.ashbyhq.com/<token>.
+Find the board token from a company's careers page:
+  greenhouse       boards.greenhouse.io/<token>
+  lever            jobs.lever.co/<token>
+  ashby            jobs.ashbyhq.com/<token>
+  workday          <tenant>.wd<N>.myworkdayjobs.com/<Site>   (the whole host/site, e.g. nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite)
+  smartrecruiters  jobs.smartrecruiters.com/<CompanyId>
+  workable         apply.workable.com/<account>
+  recruitee        <company>.recruitee.com
 
 Usage:
   python -m my_career_agent_jobs.seed_companies companies.csv --database-url "$INGEST_DATABASE_URL"
@@ -18,7 +24,7 @@ from pathlib import Path
 
 from .names import normalize_company_name
 
-VENDORS = {"greenhouse", "lever", "ashby", "smartrecruiters", "workable", "workday", "other"}
+VENDORS = {"greenhouse", "lever", "ashby", "smartrecruiters", "workable", "workday", "recruitee", "other"}
 
 
 def read_companies(path: Path) -> list[dict[str, object]]:

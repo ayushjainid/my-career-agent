@@ -1,0 +1,21 @@
+name: Probe job boards
+# Reads a few job boards through the app's own adapters and prints what came back. No secrets.
+on:
+  workflow_dispatch:
+    inputs:
+      boards:
+        description: "Space-separated vendor:board pairs"
+        required: true
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci --no-audit --no-fund
+      - run: npx esbuild scripts/probe-boards.mts --bundle --platform=node --format=esm --target=node22 --outfile=dist/probe-boards.mjs --log-level=warning
+      - run: node dist/probe-boards.mjs $BOARDS
+        env:
+          BOARDS: ${{ inputs.boards }}

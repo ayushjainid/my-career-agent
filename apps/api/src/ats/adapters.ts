@@ -6,6 +6,7 @@
 
 import { parsePayFromText, type AtsVendor, type NormalizedJob, type PayRange, type RemoteType } from "@my-career-agent/core";
 import { guardedDescription } from "../lib/html.js";
+import { BoardGoneError, fetchRecruitee, fetchSmartRecruiters, fetchWorkable, fetchWorkday, type BoardResult, type FetchOpts } from "./more.js";
 
 export class BoardNotFoundError extends Error {}
 
@@ -26,6 +27,26 @@ export function boardUrl(ref: BoardRef): string {
       return `https://api.ashbyhq.com/posting-api/job-board/${b}?includeCompensation=true`;
     default:
       throw new Error(`No public feed adapter for ${ref.vendor}`);
+  }
+}
+
+/** Every system the catalog can read. Workday and SmartRecruiters also need the stored ids. */
+export const SUPPORTED_VENDORS = ["greenhouse", "lever", "ashby", "workday", "smartrecruiters", "workable", "recruitee"] as const;
+export const NEEDS_KNOWN = new Set(["workday", "smartrecruiters"]);
+
+/** Any supported board, in one shape: jobs with details, ids only seen, and whether the list was complete. */
+export async function fetchAny(ref: BoardRef, opts: FetchOpts = {}): Promise<BoardResult> {
+  try {
+    switch (ref.vendor) {
+      case "workday": return await fetchWorkday(ref.board, opts);
+      case "smartrecruiters": return await fetchSmartRecruiters(ref.board, opts);
+      case "workable": return await fetchWorkable(ref.board, opts);
+      case "recruitee": return await fetchRecruitee(ref.board, opts);
+      default: return { jobs: await fetchBoard(ref, opts.fetcher), touch: [], complete: true };
+    }
+  } catch (e) {
+    if (e instanceof BoardGoneError) throw new BoardNotFoundError(`${ref.vendor}:${ref.board} not found`);
+    throw e;
   }
 }
 
