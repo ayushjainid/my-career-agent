@@ -5,6 +5,7 @@
   "description": "Tool-neutral job search agent: find, rank, plan and prepare applications.",
   "workspaces": [
     "packages/core",
+    "packages/resume-import",
     "apps/api",
     "db"
   ],
@@ -13,7 +14,8 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "dev": "npm run dev -w apps/api",
     "deploy": "npm run deploy -w apps/api",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "build:web": "npm run build -w packages/resume-import"
   },
   "engines": {
     "node": ">=20"

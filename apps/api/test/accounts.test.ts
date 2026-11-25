@@ -28,7 +28,7 @@ describe("sign-up", () => {
     cookie = h.cookieOf(r);
     const me = await h.json(await h.browser("GET", "/auth/me", cookie));
     expect(me).toMatchObject({ email: "priya@example.com", via: "session", hasProfile: true, onboarding: { complete: false } });
-    expect(me.onboarding.steps.map((s: { id: string }) => s.id)).toEqual(["work_auth", "targets", "facts", "languages", "answers", "network"]);
+    expect(me.onboarding.steps.map((s: { id: string }) => s.id)).toEqual(["facts", "work_auth", "targets", "languages", "answers", "network"]);
   });
 
   it("refuses a used invite and a duplicate email", async () => {

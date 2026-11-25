@@ -1,0 +1,14 @@
+{
+  "contact": { "name": "Jonas Becker", "email": "jonas.becker@example.de", "phone": "(+49) 151 2345 6789", "location": "Berlin, Germany", "github": "github.com/jbecker", "headline": "Machine Learning Engineer" },
+  "experience": [
+    { "title": "Machine Learning Engineer", "org": "Northwind Mobility GmbH", "location": "Berlin, Germany", "start": "2021-04", "end": null, "current": true,
+      "bullets": ["Trained demand forecasting models in PyTorch that cut idle fleet time by 18%", "Deployed models on Kubernetes serving 40 cities"] },
+    { "title": "Data Scientist", "org": "Contoso Analytics AG", "location": "Zürich, Switzerland", "start": "2018-10", "end": "2021-03", "current": false,
+      "bullets": ["Built churn models in scikit-learn for 5 retail clients"] }
+  ],
+  "education": [ { "degree": "M.Sc. Informatik", "org": "Technische Universität München", "location": "München, Germany", "start": "2016", "end": "2018" } ],
+  "projects": [],
+  "skills": ["Python", "PyTorch", "scikit-learn", "SQL", "Kubernetes", "Docker", "GCP"],
+  "certifications": [],
+  "languages": [ { "language": "German", "level": "native" }, { "language": "English", "level": "C1" } ]
+}

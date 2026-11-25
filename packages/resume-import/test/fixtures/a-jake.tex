@@ -1,0 +1,104 @@
+\documentclass[letterpaper,11pt]{article}
+\usepackage{latexsym}
+\usepackage[empty]{fullpage}
+\usepackage{titlesec}
+\usepackage{marvosym}
+\usepackage[usenames,dvipsnames]{color}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\usepackage[english]{babel}
+\usepackage{tabularx}
+\usepackage[T1]{fontenc}
+\input{glyphtounicode}
+\pdfgentounicode=1
+\addtolength{\oddsidemargin}{-0.5in}
+\addtolength{\evensidemargin}{-0.5in}
+\addtolength{\textwidth}{1in}
+\addtolength{\topmargin}{-.5in}
+\addtolength{\textheight}{1.0in}
+\urlstyle{same}
+\raggedbottom
+\raggedright
+\setlength{\tabcolsep}{0in}
+\titleformat{\section}{\vspace{-4pt}\scshape\raggedright\large}{}{0em}{}[\color{black}\titlerule \vspace{-5pt}]
+
+\newcommand{\resumeItem}[1]{\item\small{{#1 \vspace{-2pt}}}}
+\newcommand{\resumeSubheading}[4]{
+  \vspace{-2pt}\item
+    \begin{tabular*}{0.97\textwidth}[t]{l@{\extracolsep{\fill}}r}
+      \textbf{#1} & #2 \\
+      \textit{\small#3} & \textit{\small #4} \\
+    \end{tabular*}\vspace{-7pt}
+}
+\newcommand{\resumeProjectHeading}[2]{
+    \item
+    \begin{tabular*}{0.97\textwidth}{l@{\extracolsep{\fill}}r}
+      \small#1 & #2 \\
+    \end{tabular*}\vspace{-7pt}
+}
+\newcommand{\resumeSubHeadingListStart}{\begin{itemize}[leftmargin=0.15in, label={}]}
+\newcommand{\resumeSubHeadingListEnd}{\end{itemize}}
+\newcommand{\resumeItemListStart}{\begin{itemize}}
+\newcommand{\resumeItemListEnd}{\end{itemize}\vspace{-5pt}}
+
+\begin{document}
+\begin{center}
+    \textbf{\Huge \scshape Dana Ivanovi\'{c}} \\ \vspace{1pt}
+    \small San Francisco, CA $|$ +1 (415) 555-0134 $|$ \href{mailto:dana.ivanovic@example.com}{\underline{dana.ivanovic@example.com}} $|$
+    \href{https://linkedin.com/in/dana-ivanovic}{\underline{linkedin.com/in/dana-ivanovic}} $|$
+    \href{https://github.com/danai}{\underline{github.com/danai}}
+\end{center}
+
+\section{Experience}
+  \resumeSubHeadingListStart
+    \resumeSubheading
+      {Hooli}{San Francisco, CA}
+      {Senior Data Engineer}{Mar 2021 -- Present}
+      \resumeItemListStart
+        \resumeItem{Cut pipeline cost 40\% for 3M users by moving batch jobs to incremental loads in Python and SQL}
+        \resumeItem{Built a Kafka and Spark streaming platform on AWS handling 2B events a day}
+        \resumeItem{Led a team of 4 engineers migrating 120 Airflow DAGs to dbt}
+      \resumeItemListEnd
+    \resumeSubheading
+      {Initech}{Austin, TX}
+      {Data Engineer}{Jun 2018 -- Feb 2021}
+      \resumeItemListStart
+        \resumeItem{Designed a Snowflake warehouse serving 300 analysts with 99.9\% uptime}
+        \resumeItem{Automated data quality checks in Go, catching 95\% of schema breaks before release}
+      \resumeItemListEnd
+  \resumeSubHeadingListEnd
+
+\section{Education}
+  \resumeSubHeadingListStart
+    \resumeSubheading
+      {University of Michigan}{Ann Arbor, MI}
+      {B.S. in Computer Science}{Aug 2014 -- May 2018}
+  \resumeSubHeadingListEnd
+
+\section{Projects}
+    \resumeSubHeadingListStart
+      \resumeProjectHeading
+          {\textbf{OpenLineage Dashboard} $|$ \emph{Python, React}}{2023}
+          \resumeItemListStart
+            \resumeItem{Open-source lineage viewer used by 40 teams to trace failed pipelines}
+          \resumeItemListEnd
+    \resumeSubHeadingListEnd
+
+\section{Certifications}
+ \begin{itemize}[leftmargin=0.15in, label={}]
+    \small{\item{AWS Certified Solutions Architect -- Associate (2022)}}
+ \end{itemize}
+
+\section{Technical Skills}
+ \begin{itemize}[leftmargin=0.15in, label={}]
+    \small{\item{
+     \textbf{Languages}{: Python, SQL, Go, Scala} \\
+     \textbf{Tools}{: Airflow, dbt, Spark, Kafka, AWS, Snowflake}
+    }}
+ \end{itemize}
+
+\section{Languages}
+ \begin{itemize}[leftmargin=0.15in, label={}]
+    \small{\item{English (native), Russian (C1), Spanish (B1)}}
+ \end{itemize}
+\end{document}

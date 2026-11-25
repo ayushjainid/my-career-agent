@@ -113,7 +113,7 @@ profile.post("/facts", async (c) => {
 
 profile.get("/facts", async (c) => {
   const [rows] = await c.get("db").asUser(c.get("userId"), [
-    stmt(`SELECT id, kind, text, org, skills, start_date::text AS start_date, end_date::text AS end_date, verified
+    stmt(`SELECT id, kind, text, org, location, source, skills, start_date::text AS start_date, end_date::text AS end_date, verified
           FROM mca.fact ORDER BY start_date DESC NULLS LAST, created_at`),
   ]);
   return c.json({ items: rows });

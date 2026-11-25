@@ -1,0 +1,32 @@
+\documentclass[11pt,a4paper,sans]{moderncv}
+\moderncvstyle{classic}
+\moderncvcolor{blue}
+\usepackage[utf8]{inputenc}
+\usepackage[scale=0.8]{geometry}
+\name{Arjun}{Mehta}
+\title{Backend Engineer}
+\address{London}{United Kingdom}
+\phone[mobile]{+44 7700 900123}
+\email{arjun.mehta@example.com}
+\social[linkedin]{arjun-mehta}
+\social[github]{arjunm}
+\begin{document}
+\makecvtitle
+\section{Experience}
+\cventry{01/2022 -- present}{Backend Engineer}{Northwind Bank}{London, UK}{}{
+\begin{itemize}
+\item Rebuilt the payments ledger in Kotlin and PostgreSQL, cutting settlement time from 4 hours to 20 minutes
+\item Moved 30 services to Kubernetes with gRPC, reducing p99 latency by 35\%
+\end{itemize}}
+\cventry{2019 -- 2021}{Software Engineer}{Contoso}{Bengaluru, India}{}{
+\begin{itemize}
+\item Built Java microservices handling 5,000 requests per second for 2M customers
+\end{itemize}}
+\section{Education}
+\cventry{2015 -- 2019}{B.Tech in Electrical Engineering}{Indian Institute of Technology Delhi}{New Delhi}{}{}
+\section{Skills}
+\cvitem{Programming}{Java, Kotlin, PostgreSQL, Kubernetes, gRPC}
+\section{Languages}
+\cvitemwithcomment{English}{C2}{}
+\cvitemwithcomment{Hindi}{Native}{}
+\end{document}

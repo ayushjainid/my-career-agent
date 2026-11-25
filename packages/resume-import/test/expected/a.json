@@ -1,0 +1,14 @@
+{
+  "contact": { "name": "Dana Ivanović", "email": "dana.ivanovic@example.com", "phone": "+1 (415) 555-0134", "location": "San Francisco, CA", "linkedin": "linkedin.com/in/dana-ivanovic", "github": "github.com/danai" },
+  "experience": [
+    { "title": "Senior Data Engineer", "org": "Hooli", "location": "San Francisco, CA", "start": "2021-03", "end": null, "current": true,
+      "bullets": ["Cut pipeline cost 40% for 3M users by moving batch jobs to incremental loads in Python and SQL", "Built a Kafka and Spark streaming platform on AWS handling 2B events a day", "Led a team of 4 engineers migrating 120 Airflow DAGs to dbt"] },
+    { "title": "Data Engineer", "org": "Initech", "location": "Austin, TX", "start": "2018-06", "end": "2021-02", "current": false,
+      "bullets": ["Designed a Snowflake warehouse serving 300 analysts with 99.9% uptime", "Automated data quality checks in Go, catching 95% of schema breaks before release"] }
+  ],
+  "education": [ { "degree": "B.S. in Computer Science", "org": "University of Michigan", "location": "Ann Arbor, MI", "start": "2014-08", "end": "2018-05" } ],
+  "projects": [ { "name": "OpenLineage Dashboard", "tech": ["Python", "React"], "date": "2023", "bullets": ["Open-source lineage viewer used by 40 teams to trace failed pipelines"] } ],
+  "skills": ["Python", "SQL", "Go", "Scala", "Airflow", "dbt", "Spark", "Kafka", "AWS", "Snowflake"],
+  "certifications": [ { "name": "AWS Certified Solutions Architect – Associate", "date": "2022" } ],
+  "languages": [ { "language": "English", "level": "native" }, { "language": "Russian", "level": "C1" }, { "language": "Spanish", "level": "B1" } ]
+}

@@ -50,6 +50,11 @@ typography:
     fontSize: "15px"
     fontWeight: 400
     lineHeight: 1.5
+  mono:
+    fontFamily: "ui-monospace, SF Mono, Menlo, Consolas, monospace"
+    fontSize: "13px"
+    fontWeight: 400
+    lineHeight: 1.55
   note:
     fontFamily: "Public Sans, ui-sans-serif, sans-serif"
     fontSize: "13.5px"
@@ -124,6 +129,7 @@ Refused: grey kanban boards, funnels, hero metrics, cards of icon + heading + te
 - **Text**: `ink`, with `quiet` for secondary text (about 6:1 on the ground). Never use grey on a coloured surface.
 - **Line colours**: one per company, from `LINE_COLOURS` in app.js. Companies with live processes claim distinct colours first, assigned by a stable hash with probing, so a company keeps its colour on Today, the map, the table, the packet and Network. Every line colour holds 3:1 or better against the ground as a graphic. Text never sits on a line colour.
 - **State (`go`, `hold`, `stop`)**: only where they carry meaning (stage tags, messages, check results, the amber "early/late" estimate on the map). Red, green and amber never appear as line colours.
+- **Hover and border shades** (`#e8eaee`, `#eaecf0`, `#8c929b`, `#9aa0a9`) are steps of the ground and rule tones; message text and borders (`#0f5530`, `#6b4500`, `#8c1d16` and their tints) are darker steps of the three state colours. Add no other hues.
 - **Focus** is `focus` blue: a 2px outline with 2px offset, or a 3px soft ring on inputs. Text selection is a pale blue.
 
 ## Typography
@@ -157,6 +163,8 @@ The app is flat. Depth comes from the rail's darkness and the sheets' borders, n
 
 ## Components
 
+- **Resume drop target**: a dashed-rule panel on the ground with an ink-ringed document icon (a station), the instruction, and a primary "Choose a file". The review after it is one sheet per section (About you, Experience, Education, Projects, Skills, Certifications, Languages), every field editable in place, with a sticky footer holding Save.
+
 - **Buttons**: primary (rail fill), secondary (sheet with a strong rule border), quiet (transparent), and danger (red text). A danger button arms on the first press and does the action on the second, within 5 seconds. Use this instead of confirm dialogs. Arrow and external-link icons go after the label; other icons go before it.
 - **Tags**: small 6px-rounded labels, neutral or tinted by state.
 - **Bullet**: a 12px line-colour ring, filled when the company has a live process. It's the company's identity mark beside its name everywhere, and grows to 18px inside a packet's H1.
@@ -173,6 +181,7 @@ Motion: the one authored moment is the transit lines drawing in, once per sessio
 - Do keep state colours for meaning. Don't draw a line in red, green or amber.
 - Do let only in-window offers reach the interchange. Don't make early or late offers look on time.
 - Do put the company in the heading or meta line. Don't put an eyebrow or kicker above a heading.
+- Do mark what the resume reader guessed (amber `Check` tag and a hold-tinted field) and let typing clear it. Don't hide a guess as if it were read.
 - Do confirm consequential actions with the two-step button. Don't add modals for ordinary tasks.
 - Do write every server value with `textContent`. Don't use `innerHTML`.
 - Don't add a second display face, glass effects, gradients, or decorative shadows.

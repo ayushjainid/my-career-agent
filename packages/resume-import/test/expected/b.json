@@ -1,0 +1,14 @@
+{
+  "contact": { "name": "Arjun Mehta", "email": "arjun.mehta@example.com", "phone": "+44 7700 900123", "location": "London, United Kingdom", "linkedin": "linkedin.com/in/arjun-mehta", "github": "github.com/arjunm", "headline": "Backend Engineer" },
+  "experience": [
+    { "title": "Backend Engineer", "org": "Northwind Bank", "location": "London, UK", "start": "2022-01", "end": null, "current": true,
+      "bullets": ["Rebuilt the payments ledger in Kotlin and PostgreSQL, cutting settlement time from 4 hours to 20 minutes", "Moved 30 services to Kubernetes with gRPC, reducing p99 latency by 35%"] },
+    { "title": "Software Engineer", "org": "Contoso", "location": "Bengaluru, India", "start": "2019", "end": "2021", "current": false,
+      "bullets": ["Built Java microservices handling 5,000 requests per second for 2M customers"] }
+  ],
+  "education": [ { "degree": "B.Tech in Electrical Engineering", "org": "Indian Institute of Technology Delhi", "location": "New Delhi", "start": "2015", "end": "2019" } ],
+  "projects": [],
+  "skills": ["Java", "Kotlin", "PostgreSQL", "Kubernetes", "gRPC"],
+  "certifications": [],
+  "languages": [ { "language": "English", "level": "C2" }, { "language": "Hindi", "level": "native" } ]
+}

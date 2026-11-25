@@ -57,9 +57,20 @@ Each loop is done only when its automated check, its real-use check and its exit
 
 Open the Worker URL. Beta users sign up with an invite code. The POC account signs in with
 **Sign in with an access token** using `MCA_TOKEN`, then adds an email and password in
-Settings > Account. A first-run setup covers work authorization, target roles, experience
-(paste a resume and confirm each statement), languages, essential answers and an optional
-LinkedIn import.
+Settings > Account.
+
+Setup starts with the resume: drop a PDF, Word (.docx) or LaTeX (.tex) file and the app reads it
+**in the browser** (the file is never uploaded) into roles, achievements, education, projects,
+skills, certifications, languages and contact details. One review screen shows everything,
+pre-filled, with any guesses marked **Check**; one save stores it as confirmed facts and fills the
+answer bank, languages, home country and a first target role. Work authorization, target roles,
+remaining answers and an optional LinkedIn import follow.
+
+The reader (`packages/resume-import`) uses pdf.js (Mozilla) for PDFs, mammoth for Word and
+unified-latex for LaTeX, then one deterministic structurer. It is measured on 12 fixture files
+covering Jake's resume and moderncv (LaTeX source and PDF), awesome-cv source, one- and two-column
+Word files and their PDF exports, a header-only Word layout and a European CV: every field matches.
+Rebuild the fixtures with `npm run fixtures -w packages/resume-import`.
 
 - **Today**: the offer-window strip, then the day's queue. Approve, skip, ask for referrals, open the packet.
 - **Applications**: a transit map of live processes converging on the offer window. Offers expected
@@ -73,7 +84,7 @@ LinkedIn import.
 The visual design follows `apps/api/DESIGN.md` (built with Impeccable), and the UX strategy
 follows `docs/ux/strategy.md` (built with Intent).
 
-Try it without any accounts: run `npx tsx scripts/dev-local.mts`, then open http://localhost:8788
+Try it without any accounts: run `npm run build:web` once, then `npx tsx scripts/dev-local.mts`, and open http://localhost:8788
 and create an account (no invite needed locally). It runs the real app on an in-memory database
 with eight demo companies.
 

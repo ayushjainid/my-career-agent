@@ -86,7 +86,8 @@ export function buildResume(contact: ResumeContact, facts: Fact[], target: Resum
   // Attach each achievement to one role: same employer first, else the role whose dates contain it.
   const owner = new Map<string, string>();
   for (const a of achievements) {
-    const role = roles.find((r) => sameOrg(r, a)) ?? roles.find((r) => a.startDate && overlaps(r, a));
+    // Two roles at one employer (a promotion): the one whose dates contain the achievement.
+    const role = roles.find((r) => sameOrg(r, a) && overlaps(r, a)) ?? roles.find((r) => sameOrg(r, a)) ?? roles.find((r) => a.startDate && overlaps(r, a));
     if (role) owner.set(a.id, role.id);
   }
   let omitted = 0;

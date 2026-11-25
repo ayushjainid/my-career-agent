@@ -85,6 +85,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm run build:web
       - run: node scripts/db-urls.mjs
       - id: wrangler
         uses: cloudflare/wrangler-action@v3

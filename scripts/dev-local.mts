@@ -15,7 +15,7 @@ const PORT = Number(process.env.PORT ?? 8788);
 const TOKEN = "local-dev-token-0000000000000000";
 const root = fileURLToPath(new URL("..", import.meta.url));
 const publicDir = join(root, "apps/api/public");
-const TYPES: Record<string, string> = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png", ".woff2": "font/woff2", ".txt": "text/plain; charset=utf-8" };
+const TYPES: Record<string, string> = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png", ".woff2": "font/woff2", ".mjs": "text/javascript; charset=utf-8", ".txt": "text/plain; charset=utf-8" };
 
 const pg = new PGlite();
 for (const f of readdirSync(join(root, "db/migrations")).filter((f) => f.endsWith(".sql")).sort())

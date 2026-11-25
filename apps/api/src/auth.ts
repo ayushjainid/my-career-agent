@@ -187,9 +187,10 @@ account.get("/auth/me", async (c) => {
   ]).then(([a, b]) => [a[0] ?? [], b[0] ?? []] as const);
   const n = (k: string) => Number(counts?.[k] ?? 0);
   const steps = [
+    // The resume comes first: it fills in contact answers, languages and a first target role.
+    { id: "facts", label: "Your resume", done: n("facts") >= 3 },
     { id: "work_auth", label: "Work authorization", done: n("work_auth") > 0 },
     { id: "targets", label: "Target roles", done: n("targets") > 0 },
-    { id: "facts", label: "Your experience", done: n("facts") >= 3 },
     { id: "languages", label: "Languages", done: n("languages") > 0 },
     { id: "answers", label: "Essential answers", done: n("contact_answers") >= 2 && (n("work_auth_us") === 0 || n("visa_answers") >= 3) },
     { id: "network", label: "LinkedIn connections", done: n("contacts") > 0, optional: true },

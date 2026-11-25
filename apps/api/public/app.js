@@ -331,7 +331,7 @@ VIEWS.signup = () => VIEWS.signin("signup");
 const STEP_HELP = {
   work_auth: ["Where can you work?", "Pick the countries you're applying in and your status in each. If you need sponsorship, we only show employers with a public record of sponsoring."],
   targets: ["Which roles?", "Add the job titles you're applying for. Pay floors are optional; jobs that post less are flagged, not hidden."],
-  facts: ["Your experience", "Paste your resume and confirm each statement is true. Only confirmed facts are used in scores, resumes and answers. You need at least three."],
+  facts: ["Start with your resume", "Upload it and we'll fill in your experience, education, skills, languages and contact details. You check it once and save."],
   languages: ["Languages", "Jobs that need a language you haven't listed are left out; a higher level than yours is flagged."],
   answers: ["Essential answers", "The questions every form asks. Packets copy these exactly and nothing is ever guessed."],
   network: ["LinkedIn connections (optional)", "Import your own LinkedIn export to see who can refer you. Nothing is scraped and your LinkedIn login is never used."],
@@ -408,7 +408,8 @@ const STEP_FORMS = {
     const drawList = (items) => clear(list, items.length ? items.map((t) => el("li", {}, el("span", { class: "grow" }, el("strong", {}, t.title), el("span", { class: "note" }, ` · ${COUNTRY_NAME[t.country] || t.country}${t.seniority ? ` · ${t.seniority}` : ""}${t.pay_floor ? ` · from ${money(t.pay_floor, t.pay_currency)}` : ""}`))))
       : el("li", { class: "note" }, "No roles yet."));
     drawList(p.targets);
-    const title = input({ placeholder: "Data Engineer, Analytics Engineer", autocomplete: "off" });
+    // Suggested from the most recent role on the resume, while there are no targets yet.
+    const title = input({ placeholder: "Data Engineer, Analytics Engineer", autocomplete: "off", value: p.targets.length ? "" : state.suggestedTitle || "" });
     const country = select(countries.map((c) => [c, COUNTRY_NAME[c] || c]), countries[0]);
     const level = select([["", "Any level"], ["entry", "Entry"], ["mid", "Mid"], ["senior", "Senior"], ["lead", "Lead"], ["executive", "Executive"]], "");
     const floor = input({ type: "number", min: 0, step: 1000, inputmode: "numeric" });
@@ -427,31 +428,7 @@ const STEP_FORMS = {
   },
 
   async facts(body, next, out) {
-    const existing = (await api("GET", "/facts")).items;
-    const verified = existing.filter((f) => f.verified).length;
-    const paste = el("textarea", { rows: 10, placeholder: "Paste your resume text here: roles, bullet points, education, certifications." });
-    const cands = el("div", { class: "candidates" });
-    const split = btn("Split into statements");
-    const save = btn("Save confirmed facts", { kind: "primary" });
-    const cont = btn("Continue", { kind: "primary", icon: "arrow" });
-    const counter = el("span");
-    const updateCount = () => { counter.textContent = `${verified} confirmed so far${verified < 3 ? ", 3 needed" : ""}`; };
-    updateCount();
-    split.addEventListener("click", () => {
-      const items = splitResume(paste.value);
-      clear(cands, items.length ? items.map(candidateRow) : el("p", { class: "note", style: { padding: "12px" } }, "No statements found. Paste more text, one point per line."));
-    });
-    action(save, out, async () => {
-      const rows = [...cands.querySelectorAll(".cand")].map((n) => n.read()).filter((r) => r.keep && r.text);
-      if (!rows.length) throw new Error("Tick the statements that are true first.");
-      await api("POST", "/facts", rows.map((r) => ({ kind: r.kind, text: r.text, org: r.org || null, skills: [], startDate: r.start || null, endDate: r.end || null, verified: true })));
-      toast(`Saved ${plural(rows.length, "fact")}`);
-      await VIEWS.setup("facts");
-    });
-    action(cont, out, async () => { await loadMe(); if (!state.me.onboarding.steps.find((s) => s.id === "facts").done) throw new Error("Confirm at least three facts first."); await next(); });
-    clear(body, el("div", { class: "sheet stack" }, field("Resume text", paste), el("div", { class: "row" }, split, el("span", { class: "note" }, "Nothing is sent until you save.")), cands,
-      el("div", { class: "row" }, save)),
-      wizardFoot(cont, counter));
+    await resumeStep(body, next, out); // resume-step.js
   },
 
   async languages(body, next, out) {
@@ -485,31 +462,6 @@ const STEP_FORMS = {
   },
 };
 
-/** Splits pasted resume text into candidate statements. Nothing leaves the browser until saved. */
-function splitResume(text) {
-  const lines = text.split(/\r?\n/).map((l) => l.replace(/^[\s•●▪\-*–—·>]+/, "").trim()).filter((l) => l.length >= 12);
-  const seen = new Set();
-  return lines.filter((l) => !seen.has(l.toLowerCase()) && seen.add(l.toLowerCase())).slice(0, 60).map((l) => {
-    const low = l.toLowerCase();
-    const kind = /\b(b\.?s\.?|m\.?s\.?|bachelor|master|phd|university|college|degree)\b/.test(low) ? "education"
-      : /\b(certified|certification|certificate)\b/.test(low) ? "certification"
-      : /\b(engineer|manager|analyst|developer|scientist|lead|director|intern|consultant)\b.*\b(at|@|,)\b/.test(low) && l.length < 90 ? "role"
-      : /\d/.test(l) ? "achievement" : "project";
-    const years = [...l.matchAll(/\b(19|20)\d{2}\b/g)].map((m) => m[0]);
-    return { text: l, kind, start: years[0] ? `${years[0]}-01-01` : "", end: years[1] ? `${years[1]}-12-31` : "" };
-  });
-}
-function candidateRow(c) {
-  const keep = input({ type: "checkbox", "aria-label": "This is true" });
-  const text = el("textarea", { value: c.text, rows: 1, "aria-label": "Statement" });
-  const kind = select(["role", "achievement", "skill", "project", "education", "certification"].map((k) => [k, k[0].toUpperCase() + k.slice(1)]), c.kind, { "aria-label": "Kind" });
-  const org = input({ placeholder: "Company or school", "aria-label": "Company or school" });
-  const start = input({ type: "date", value: c.start, "aria-label": "From" });
-  const end = input({ type: "date", value: c.end, "aria-label": "To" });
-  const n = el("div", { class: "cand" }, keep, text, el("div", { class: "opts" }, kind, org, start, end));
-  n.read = () => ({ keep: keep.checked, text: text.value.trim(), kind: kind.value, org: org.value.trim(), start: start.value, end: end.value });
-  return n;
-}
 function answerInput(q, current = "") {
   const yesNo = q.hint && /yes\s*\/\s*no/i.test(q.hint);
   const control = yesNo ? select([["", "Choose…"], ["Yes", "Yes"], ["No", "No"]], current) : input({ value: current, placeholder: q.hint || "", autocomplete: q.key === "contact.email" ? "email" : q.key === "contact.full_name" ? "name" : q.key === "contact.phone" ? "tel" : "off" });
@@ -1069,7 +1021,7 @@ function factsSheet(items) {
   const byKind = {};
   for (const f of items) (byKind[f.kind] = byKind[f.kind] || []).push(f);
   return el("section", { class: "sheet", id: "facts" },
-    el("div", { class: "sheet-head" }, el("h2", {}, "Facts"), el("a", { class: "btn small quiet", href: "#/setup/facts" }, "Paste a resume")),
+    el("div", { class: "sheet-head" }, el("h2", {}, "Facts"), el("a", { class: "btn small quiet", href: "#/setup/facts" }, icon("up"), "Import a resume")),
     out,
     items.length ? el("ul", { class: "list" }, items.map((f) => {
       const ver = input({ type: "checkbox", checked: f.verified, "aria-label": "Confirmed true" });

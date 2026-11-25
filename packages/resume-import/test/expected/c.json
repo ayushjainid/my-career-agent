@@ -1,0 +1,16 @@
+{
+  "contact": { "name": "Maria Okonkwo-Silva", "email": "maria.os@example.org", "phone": "416-555-0199", "location": "Toronto, ON, Canada", "website": "mariaos.dev" },
+  "experience": [
+    { "title": "Lead Product Designer", "org": "Fabrikam Health", "location": "Toronto, ON", "start": "2022-01", "end": null, "current": true,
+      "bullets": ["Redesigned onboarding for 1.2M patients, lifting completion from 54% to 81%", "Built the design system used by 9 product teams"] },
+    { "title": "Product Designer", "org": "Tailspin Bank", "location": "Vancouver, BC", "start": "2019-09", "end": "2021-12", "current": false,
+      "bullets": ["Shipped a budgeting feature used by 300k customers in its first quarter"] },
+    { "title": "Design Intern", "org": "Contoso Studio", "location": null, "start": null, "end": "2018-06", "current": false,
+      "bullets": ["Prototyped 12 concepts for a museum wayfinding app"] }
+  ],
+  "education": [ { "degree": "Bachelor of Design, Interaction Design", "org": "OCAD University", "location": null, "start": "2015", "end": "2019" } ],
+  "projects": [],
+  "skills": ["Figma", "Prototyping", "User Research", "Design Systems", "Accessibility (WCAG)", "HTML/CSS"],
+  "certifications": [],
+  "languages": [ { "language": "English", "level": "C2" }, { "language": "Portuguese", "level": "native" }, { "language": "French", "level": "B1" } ]
+}

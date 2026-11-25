@@ -16,3 +16,6 @@ jobs/out/
 apps/api/.impeccable/review/
 apps/api/.impeccable/mocks/
 apps/api/.impeccable/questions/
+
+# Built by npm run build:web (packages/resume-import), in CI before deploy
+apps/api/public/vendor/

@@ -39,3 +39,10 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## Resume reading (packages/resume-import, shipped to the browser)
+
+- pdf.js (Mozilla), Apache License 2.0: https://github.com/mozilla/pdf.js
+- mammoth.js (Michael Williamson), BSD 2-Clause License: https://github.com/mwilliamson/mammoth.js
+- unified-latex (Jason Siefken), MIT License: https://github.com/siefkenj/unified-latex
+- fflate (Arjun Barrett), MIT License: https://github.com/101arrowz/fflate
