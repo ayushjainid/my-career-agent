@@ -405,6 +405,33 @@ input.guess { border-color: var(--hold); background: var(--hold-tint); }
   padding: var(--s3) var(--s4); background: var(--sheet); border: 1px solid var(--rule); border-radius: var(--r-md); box-shadow: 0 -6px 18px rgba(21, 24, 29, .08); }
 .review-foot .grow { min-width: 240px; font-size: 14px; }
 
+/* work authorization: one grid for the setup step and Settings, so names, statuses and notes align */
+.auth-row { display: grid; grid-template-columns: 200px minmax(0, 340px); column-gap: var(--s5); row-gap: 4px; align-items: center; padding: var(--s3) 0; }
+.auth-set .auth-row + .auth-row, .auth-table .auth-row + .auth-row { border-top: 1px solid var(--rule); }
+.auth-name { font: 650 15px/1.3 var(--display); color: var(--ink); margin: 0; }
+.auth-row .check.auth-name { display: flex; align-items: center; gap: 12px; cursor: pointer; }
+.auth-note { grid-column: 2; margin: 0; font-size: 13px; color: var(--quiet); }
+.auth-note:empty { display: none; }
+.auth-row.off .auth-note { color: #6b6f77; }
+.auth-row.off select:disabled { opacity: .5; background: var(--ground); cursor: not-allowed; }
+.auth-set { border: 0; border-top: 1px solid var(--rule); margin: var(--s3) 0 0; padding: var(--s4) 0 0; min-width: 0; }
+.auth-set legend { font: 750 17px/1.2 var(--display); padding: 0; float: left; width: 100%; }
+.auth-set legend + .note { clear: both; margin: 4px 0 var(--s2); max-width: 70ch; }
+.auth-table .auth-row, .auth-head { grid-template-columns: 130px minmax(0, 1fr) 104px 104px 64px; column-gap: var(--s4); }
+.auth-table .auth-note { grid-column: 2 / -1; }
+.auth-head { display: grid; padding: 0 0 6px; border-bottom: 1px solid var(--rule); font: 700 12px/1.2 var(--display); color: var(--quiet); text-transform: uppercase; letter-spacing: .03em; }
+.auth-na { padding-left: 12px; }
+.auth-num { margin: 0; }
+.auth-num-label { display: none; }
+@media (max-width: 640px) {
+  .auth-row, .auth-table .auth-row { grid-template-columns: 1fr; }
+  .auth-note, .auth-table .auth-note { grid-column: 1; }
+  .auth-head { display: none; }
+  .auth-num { display: grid; grid-template-columns: 130px 110px; align-items: center; gap: var(--s3); }
+  .auth-num-label { display: block; font: 600 13px/1.3 var(--text); }
+  .auth-na { display: none; }
+}
+
 /* ---------- settings ---------- */
 .reset-list .check { align-items: flex-start; }
 .reset-list .empty-part { color: var(--quiet); cursor: default; }

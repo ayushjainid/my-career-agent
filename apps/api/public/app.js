@@ -214,7 +214,7 @@ async function moveTo(appId, to, note) { await api("POST", `/applications/${appI
 
 const COUNTRIES = [["US", "United States"], ["GB", "United Kingdom"], ["CA", "Canada"]];
 const COUNTRY_NAME = Object.fromEntries(COUNTRIES);
-const WORK_STATUS = [["needs_sponsorship", "Needs visa sponsorship"], ["work_visa", "Has a work visa, no new sponsorship"], ["permanent_resident", "Permanent resident"], ["citizen", "Citizen"]];
+const WORK_STATUS = [["needs_sponsorship", "Needs visa sponsorship"], ["work_visa", "Has a work visa (no sponsorship)"], ["permanent_resident", "Permanent resident"], ["citizen", "Citizen"]];
 const CURRENCY = { US: "USD", GB: "GBP", CA: "CAD" };
 
 // ---------------------------------------------------------------- shell
@@ -372,6 +372,31 @@ async function setupFinish(stepper) {
         : "Some required steps are still open. Pick one above to finish it."),
     state.me.onboarding.complete ? el("div", { class: "row" }, go, el("a", { class: "btn quiet", href: "#/settings" }, "Review settings first")) : null, out));
 }
+/** What "needs sponsorship" means in each country, shown under the status it applies to. */
+const SPONSOR_EVIDENCE = {
+  US: "Only employers with H-1B (LCA) and PERM filings",
+  GB: "Only employers on the Home Office register of licensed sponsors",
+  CA: "Only employers with approved LMIA positions",
+};
+/**
+ * One country in the work-authorization grid: name, status and what that status means, aligned in
+ * the same columns on the setup step and in Settings. `on` is the "applying here" checkbox, if any.
+ */
+function authRow(code, nameCell, status, on, ...extra) {
+  const note = el("p", { class: "auth-note" });
+  const row = el("div", { class: "auth-row" }, nameCell, status, ...extra, note);
+  const sync = () => {
+    const active = on ? on.checked : !!status.value;
+    if (on) status.disabled = !on.checked;
+    row.classList.toggle("off", !active);
+    // In Settings the select itself already says "Not applying here".
+    note.textContent = !active ? (on ? "Not applying here" : "") : status.value === "needs_sponsorship" ? SPONSOR_EVIDENCE[code] : "Every employer is shown";
+  };
+  if (on) on.addEventListener("change", sync);
+  status.addEventListener("change", sync);
+  sync();
+  return row;
+}
 const wizardFoot = (primary, note, skip) => el("div", { class: "wizard-foot" }, el("span", { class: "grow" }, note || ""), skip, primary);
 
 const STEP_FORMS = {
@@ -379,25 +404,27 @@ const STEP_FORMS = {
     let p = null;
     try { p = await api("GET", "/profile"); } catch (e) { if (e.status !== 404) throw e; }
     const have = new Map(((p && p.workAuth) || []).map((a) => [a.country, a]));
-    const home = select([["", "Choose…"], ...COUNTRIES, ["IN", "India"], ["CN", "China"], ["XX", "Somewhere else"]], (p && p.settings.home_country) || "");
+    const home = select([["", "Choose…"], ...COUNTRIES, ["IN", "India"], ["CN", "China"], ["XX", "Somewhere else"]], (p && p.settings.home_country) || "", { id: "home-country" });
     const rows = COUNTRIES.map(([code, name]) => {
-      const on = input({ type: "checkbox", checked: have.has(code) || (!have.size && code === "US") });
-      const st = select(WORK_STATUS, (have.get(code) || {}).status || "needs_sponsorship", { "aria-label": `Status in ${name}` });
-      return { code, on, st, node: el("li", {}, el("label", { class: "check grow" }, on, el("span", {}, el("strong", {}, name))), el("div", { style: { minWidth: "260px", flex: "1 1 260px" } }, st)) };
+      const on = input({ type: "checkbox", checked: have.has(code) || (!have.size && code === "US"), id: `wa-${code}` });
+      const st = select(WORK_STATUS, (have.get(code) || {}).status || "needs_sponsorship", { "aria-label": `Your status in ${name}` });
+      return { code, on, st, node: authRow(code, el("label", { class: "check auth-name", for: on.id }, on, el("span", {}, name)), st, on) };
     });
     const save = btn("Save and continue", { kind: "primary", icon: "arrow" });
     action(save, out, async () => {
       const picked = rows.filter((r) => r.on.checked);
-      if (!picked.length) throw new Error("Pick at least one country.");
+      if (!picked.length) throw new Error("Tick at least one country you're applying in.");
       const s = (p && p.settings) || {};
       await api("PUT", "/profile", { homeCountry: home.value && home.value !== "XX" ? home.value : null, dailyTarget: s.daily_target ?? 10, maxActiveProcesses: s.max_active_processes ?? 8, offerWindowStart: s.offer_window_start ?? null });
       for (const r of picked) await api("PUT", `/work-auth/${r.code}`, { status: r.st.value });
       await next();
     });
-    clear(body, el("div", { class: "sheet stack" },
-      field("Where do you live now?", home),
-      el("div", {}, el("div", { class: "label" }, "Countries you're applying in"), el("ul", { class: "list" }, rows.map((r) => r.node))),
-      el("p", { class: "note measure" }, "Sponsorship evidence: US employers by H-1B (LCA) and PERM filings, UK employers on the Home Office register of licensed sponsors, Canadian employers by approved LMIA positions.")),
+    clear(body, el("div", { class: "sheet" },
+      el("div", { class: "auth-row" }, el("label", { class: "auth-name", for: home.id }, "Home country"), home),
+      el("fieldset", { class: "auth-set" },
+        el("legend", {}, "Countries you're applying in"),
+        el("p", { class: "note" }, "Tick each one and choose your status there."),
+        rows.map((r) => r.node))),
       wizardFoot(save));
   },
 
@@ -1136,24 +1163,26 @@ function answerBank(r) {
     el("div", { class: "grid" }, field("Key", key, "(starts with custom.)"), field("Answer", val)), el("div", { class: "row", style: { marginTop: "12px" } }, add));
 }
 function workAuth(p) {
-  const out = el("div");
+  const out = el("div", { "aria-live": "polite" });
   const have = new Map(((p && p.workAuth) || []).map((a) => [a.country, a]));
   const rows = COUNTRIES.map(([code, name]) => {
     const a = have.get(code);
-    const st = select([["", "Not applying here"], ...WORK_STATUS], a ? a.status : "", { "aria-label": `Status in ${name}` });
-    const min = input({ type: "number", min: 0, value: a ? a.min_lca_filings : code === "US" ? 5 : 1, inputmode: "numeric", "aria-label": `Minimum sponsorship records in ${name}` });
-    const perm = input({ type: "number", min: 0, value: a ? a.min_perm_certified : code === "US" ? 3 : 0, inputmode: "numeric", "aria-label": "Minimum PERM certifications", disabled: code !== "US" });
+    const st = select([["", "Not applying here"], ...WORK_STATUS], a ? a.status : "", { "aria-label": `Your status in ${name}` });
+    const min = input({ type: "number", min: 0, value: a ? a.min_lca_filings : code === "US" ? 5 : 1, inputmode: "numeric", "aria-label": `Fewest sponsorship records in ${name}` });
+    const perm = code === "US" ? input({ type: "number", min: 0, value: a ? a.min_perm_certified : 3, inputmode: "numeric", "aria-label": "Fewest PERM certifications" }) : el("span", { class: "note auth-na" }, "–");
     const save = btn("Save", { small: true });
     action(save, out, async () => {
       if (!st.value) throw new Error(`To stop applying in ${name}, remove its target roles in Profile.`);
-      await api("PUT", `/work-auth/${code}`, { status: st.value, minLcaFilings: Number(min.value), minPermCertified: Number(perm.value) }); toast("Saved");
+      await api("PUT", `/work-auth/${code}`, { status: st.value, minLcaFilings: Number(min.value), minPermCertified: code === "US" ? Number(perm.value) : 0 }); toast("Saved");
     });
-    return el("li", {}, el("strong", { style: { width: "140px" } }, name), el("div", { style: { flex: "1 1 240px" } }, st),
-      el("div", { style: { width: "110px" } }, min), code === "US" ? el("div", { style: { width: "110px" } }, perm) : el("div", { style: { width: "110px" } }), save);
+    // The column headings name these on wide screens; on narrow ones each carries its own label.
+    const num = (label, control) => el("label", { class: "auth-num" }, el("span", { class: "auth-num-label" }, label), control);
+    return authRow(code, el("span", { class: "auth-name" }, name), st, null, num("Min. records", min), code === "US" ? num("Min. PERM", perm) : perm, save);
   });
   return el("div", {},
-    el("p", { class: "note measure", style: { marginTop: 0 } }, "When you need sponsorship, employers must show a public record: H-1B (LCA) filings and PERM certifications in the US, a Home Office sponsor licence in the UK (A-rated by default), approved LMIA positions in Canada. The two number columns are the minimums."),
-    el("ul", { class: "list" }, rows), out);
+    el("p", { class: "note measure", style: { marginTop: 0 } }, "When you need sponsorship, employers must show a public record: H-1B (LCA) filings and PERM certifications in the US, a Home Office sponsor licence in the UK (A-rated by default), approved LMIA positions in Canada. The numbers are the fewest records an employer needs."),
+    el("div", { class: "auth-head", "aria-hidden": "true" }, el("span", {}, "Country"), el("span", {}, "Your status"), el("span", {}, "Min. records"), el("span", {}, "Min. PERM"), el("span")),
+    el("div", { class: "auth-table" }, rows), out);
 }
 function companies(prefs) {
   const out = el("div");
