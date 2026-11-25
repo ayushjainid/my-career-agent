@@ -26,13 +26,88 @@ colors:
   line-brown: "#7a5230"
   line-slate: "#3f4a5a"
   line-cyan: "#0e7490"
+  fill: "#e8eaee"
+  fill-2: "#eaecf0"
+  hover: "#f8f9fb"
+  row-hover: "#f9fafb"
+  th: "#f7f8fa"
+  edge-hover: "#8c929b"
+  placeholder: "#6b6f77"
+  primary-hover: "#2a3039"
+  selection: "#cfe0f6"
+  go-ink: "#0f5530"
+  go-edge: "#c6e3d1"
+  hold-ink: "#6b4500"
+  hold-edge: "#efdcae"
+  stop-ink: "#8c1d16"
+  stop-edge: "#f0c9c4"
+  dark-rail: "#0b0d10"
+  dark-rail-2: "#1d2128"
+  dark-rail-quiet: "#9ba1ab"
+  dark-ground: "#111317"
+  dark-sheet: "#181b20"
+  dark-ink: "#e8e7e2"
+  dark-quiet: "#a3a8b1"
+  dark-rule: "#2a2f37"
+  dark-rule-strong: "#3b414b"
+  dark-focus: "#6aa8ff"
+  dark-go: "#5cc98a"
+  dark-go-tint: "#12291c"
+  dark-go-ink: "#8fdcae"
+  dark-go-edge: "#1f4a31"
+  dark-hold: "#e0a93a"
+  dark-hold-tint: "#2b2210"
+  dark-hold-ink: "#f0c770"
+  dark-hold-edge: "#4d3b14"
+  dark-stop: "#f0776c"
+  dark-stop-tint: "#2f1614"
+  dark-stop-ink: "#f6a39b"
+  dark-stop-edge: "#5a2420"
+  dark-fill: "#22262d"
+  dark-fill-2: "#252a32"
+  dark-hover: "#1e2228"
+  dark-row-hover: "#1c1f25"
+  dark-th: "#1b1e24"
+  dark-edge-hover: "#5b626d"
+  dark-placeholder: "#8a909a"
+  dark-selection: "#2b4a78"
+  dark-line-blue: "#6bb4ff"
+  dark-line-violet: "#d08fff"
+  dark-line-magenta: "#ff73b9"
+  dark-line-teal: "#67c5b4"
+  dark-line-brown: "#d4a783"
+  dark-line-slate: "#a5b2c5"
+  dark-line-cyan: "#68bedd"
 typography:
   display:
     fontFamily: "Overpass, Public Sans, ui-sans-serif, sans-serif"
-    fontSize: "30px"
+    fontSize: "32px"
     fontWeight: 800
-    lineHeight: 1.1
+    lineHeight: 1.08
+    letterSpacing: "-0.03em"
+  date:
+    fontFamily: "Overpass, Public Sans, ui-sans-serif, sans-serif"
+    fontSize: "40px"
+    fontWeight: 800
+    lineHeight: 1.02
+    letterSpacing: "-0.035em"
+  count:
+    fontFamily: "Overpass, Public Sans, ui-sans-serif, sans-serif"
+    fontSize: "22px"
+    fontWeight: 800
+    lineHeight: 1.2
     letterSpacing: "-0.02em"
+  subhead:
+    fontFamily: "Overpass, Public Sans, ui-sans-serif, sans-serif"
+    fontSize: "17px"
+    fontWeight: 700
+    lineHeight: 1.2
+  micro:
+    fontFamily: "Overpass, ui-sans-serif, sans-serif"
+    fontSize: "10.5px"
+    fontWeight: 600
+    lineHeight: 1.3
+    letterSpacing: "0.06em"
   heading:
     fontFamily: "Overpass, Public Sans, ui-sans-serif, sans-serif"
     fontSize: "19px"
@@ -106,6 +181,11 @@ components:
     backgroundColor: "{colors.stop-tint}"
     textColor: "{colors.stop}"
     rounded: "{rounded.sm}"
+  route-badge:
+    backgroundColor: "{colors.line-blue}"
+    textColor: "#ffffff"
+    rounded: "{rounded.pill}"
+    padding: "6px 10px 5px 7px"
   chip-selected:
     backgroundColor: "{colors.rail}"
     textColor: "{colors.rail-ink}"
@@ -127,23 +207,24 @@ Refused: grey kanban boards, funnels, hero metrics, cards of icon + heading + te
 - **Rail (`rail`)**: the top bar, the offer-window strip on Today, primary buttons, selected chips, the interchange capsule and secret/code panels. Text on it is `rail-ink`, or `rail-quiet` for secondary text.
 - **Ground and sheets**: the page is `ground`. Working content sits on white `sheet` panels with a 1px `rule` border, one level deep only.
 - **Text**: `ink`, with `quiet` for secondary text (about 6:1 on the ground). Never use grey on a coloured surface.
-- **Line colours**: one per company, from `LINE_COLOURS` in app.js. Companies with live processes claim distinct colours first, assigned by a stable hash with probing, so a company keeps its colour on Today, the map, the table, the packet and Network. Every line colour holds 3:1 or better against the ground as a graphic. Text never sits on a line colour.
+- **Line colours**: one per company. `LINE_COLOURS` in app.js holds `var(--l0)`…`var(--l6)`, and app.css defines each per theme (same hue; lightened in oklab to L≈0.76 for dark). Companies with live processes claim distinct colours first, assigned by a stable hash with probing, so a company keeps its colour on Today, the map, the table, the packet and Network. Every line colour holds 3:1 or better against the ground as a graphic. The only text on a line colour is the route badge's company name, in `--line-ink` (white on light, near-black on dark), 5.3:1 or better in both themes.
 - **State (`go`, `hold`, `stop`)**: only where they carry meaning (stage tags, messages, check results, the amber "early/late" estimate on the map). Red, green and amber never appear as line colours.
-- **Hover and border shades** (`#e8eaee`, `#eaecf0`, `#8c929b`, `#9aa0a9`) are steps of the ground and rule tones; message text and borders (`#0f5530`, `#6b4500`, `#8c1d16` and their tints) are darker steps of the three state colours. Add no other hues.
+- **Neutral steps** (`fill`, `fill-2`, `hover`, `row-hover`, `th`, `edge-hover`, `placeholder`) are steps of the ground and rule tones; `go-ink`/`go-edge` and their hold and stop pairs are message text and borders, darker steps of the three state colours. All are CSS custom properties, never literals. Add no other hues.
+- **Dark theme** (`[data-theme="dark"]` on `<html>`, every `dark-*` colour above): for the evening laptop session. The rail drops below the ground (`#0b0d10` under `#111317`) so it still reads as the frame; sheets lift one step; text is warm paper (`#e8e7e2`). The solid button and selected chip turn to paper with ink text (`--primary`), and the interchange capsule turns paper too. State colours lighten and their tints darken. `theme.js` (loaded in `<head>`, before paint) applies the saved choice (`localStorage.mca_theme`: `light`, `dark`, or absent for the system) and follows system changes; the rail's sun/moon button pins the opposite theme, and Settings › Appearance offers Match my device / Light / Dark.
 - **Focus** is `focus` blue: a 2px outline with 2px offset, or a 3px soft ring on inputs. Text selection is a pale blue.
 
 ## Typography
 
 - **Overpass** (self-hosted, OFL; highway-signage lineage) carries display text, headings, buttons, navigation, column labels and station labels.
 - **Public Sans** (self-hosted, OFL) carries body text, tables and notes. Tabular numerals are on globally (`tnum`).
-- The scale has clear steps: 30px page titles (800), 19px section headings (750), 15–16px row titles (700), 15px body, 13.5px notes, and 12px uppercase column labels with +0.03em tracking.
+- The scale has clear steps: 40px for Today's date (800, -0.035em) with the weekday above it in 17px quiet, 32px page titles (800), 19px section headings (750), 15–16px row titles (700), 15px body, 13.5px notes, and 12px uppercase column labels with +0.03em tracking.
 - Prose measure is at most 70ch (`.measure`, `.lede`).
 
 ## Layout
 
 - Content is at most 1120px wide, with a 16px gutter.
 - The order on each page is a page heading row (title plus lede, actions to the right), then content.
-- **Today**: the window strip, then the queue as one sheet of divided rows (fit score | company and title, meta, tags | actions).
+- **Today**: the date heading (weekday over day and month) with actions to the right, the window strip, today's line, then the queue as one sheet of divided rows (fit score | route badge and title, meta, tags | actions). Rows are 76px for a single-line meta; Packet and Skip are quiet buttons, so Approve is the one solid control per row.
 - **Applications**: the compact transit diagram (at most six lines, latest stage first, with up to two slots kept for held-back dream roles), then filter chips plus search, then a sortable table with inline notes and an expandable history row.
 - **Settings**: a sticky section list beside the stacked sheets.
 - **Under 640px**: the rail wraps the navigation onto its own row. The transit diagram switches to a compact layout with names above lines. Tables become two-column cards that hide empty and secondary cells.
@@ -167,7 +248,9 @@ The app is flat. Depth comes from the rail's darkness and the sheets' borders, n
 
 - **Buttons**: primary (rail fill), secondary (sheet with a strong rule border), quiet (transparent), and danger (red text). A danger button arms on the first press and does the action on the second, within 5 seconds. Use this instead of confirm dialogs. Arrow and external-link icons go after the label; other icons go before it.
 - **Tags**: small 6px-rounded labels, neutral or tinted by state.
-- **Bullet**: a 12px line-colour ring, filled when the company has a live process. It's the company's identity mark beside its name everywhere, and grows to 18px inside a packet's H1.
+- **Route badge**: the company's name in a pill of its line colour with a small open station ring before it, as on a transit sign. It introduces a company where the company is the subject: Today's queue rows, the packet header (above the job title H1) and follow-up cards.
+- **Bullet**: a 12px line-colour ring, filled when the company has a live process. It's the company's mark in lists and tables, where the open/filled state carries meaning (Applications table, Network, Companies).
+- **Today's line**: one station per role in today's queue on a 5px line; stations fill in ink, and the line with them, as you approve or apply. Skipped roles get a dashed ring. The count ("3 of 8 approved") sits to its left. It updates live without reloading.
 - **Window strip**: a rail-coloured bar holding the outlined "Offer window" capsule, the facts (live processes, expected inside, held back) and a "See the map" link.
 - **Stepper (setup)**: the transit line again, with stations for setup steps. Optional steps get a dashed ring.
 - **Messages**: tinted panels with a leading icon for go, hold, stop and info. Each error names the problem and the recovery.

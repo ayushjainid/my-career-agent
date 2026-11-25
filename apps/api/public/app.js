@@ -163,7 +163,8 @@ const state = { me: null, aiKey: undefined };
 // Each company owns one saturated line colour, from a stable hash of its id. Every hue holds 3:1
 // against the working ground as a graphic; text never sits on a line colour.
 // No red, green or amber: those mean state here and never sit on a line.
-const LINE_COLOURS = ["#0b5cad", "#7c3aad", "#b3186d", "#00796b", "#7a5230", "#3f4a5a", "#0e7490"];
+// Theme-aware: app.css defines --l0…--l6 for light and a lightened set for dark.
+const LINE_COLOURS = ["var(--l0)", "var(--l1)", "var(--l2)", "var(--l3)", "var(--l4)", "var(--l5)", "var(--l6)"];
 function hashOf(key) {
   let h = 2166136261;
   for (const ch of String(key || "")) { h ^= ch.codePointAt(0); h = Math.imul(h, 16777619); }
@@ -195,6 +196,7 @@ async function ensureLines(force) {
 }
 const bullet = (key, reached = true) => el("span", { class: `bullet ${reached ? "reached" : ""}`, style: { "--line": lineColour(key) }, "aria-hidden": "true" });
 const coName = (key, name) => el("span", { class: "co" }, bullet(key), name);
+const routeBadge = (key, name) => el("span", { class: "route", style: { "--line": lineColour(key) } }, name);
 
 // Mirrors apps/api/src/lib/transitions.ts. The server enforces it; this only offers valid moves.
 const NEXT = {
@@ -233,9 +235,35 @@ function shell(active) {
       r === "followups" && state.followupCount ? el("span", { class: "count", "aria-label": `${state.followupCount} due` }, state.followupCount) : null)));
     const out = btn("Sign out", { kind: "quiet" });
     out.addEventListener("click", signOut);
-    clear(who, state.me.email ? el("span", { class: "email" }, state.me.email) : null, out);
+    clear(who, state.me.email ? el("span", { class: "email" }, state.me.email) : null, themeButton(), out);
   }
   clear(foot, el("span", {}, "You review and submit every application yourself."), el("a", { href: "#/privacy" }, "Privacy"), el("a", { href: "#/terms" }, "Terms"));
+}
+// Light/dark switch in the rail. It pins the opposite of what is showing; Settings › Appearance
+// can hand the choice back to the system.
+function themeButton() {
+  const b = el("button", { type: "button", class: "theme-btn" });
+  const draw = () => {
+    const dark = window.mcaTheme && mcaTheme.current() === "dark";
+    b.setAttribute("aria-label", dark ? "Switch to light mode" : "Switch to dark mode");
+    b.title = b.getAttribute("aria-label");
+    b.replaceChildren(icon(dark ? "sun" : "moon"));
+  };
+  b.addEventListener("click", () => { mcaTheme.set(mcaTheme.current() === "dark" ? "light" : "dark"); });
+  document.addEventListener("themechange", draw);
+  draw();
+  return b;
+}
+function appearance() {
+  const out = el("div", { class: "chips", role: "radiogroup", "aria-label": "Theme" });
+  const opts = [["system", "Match my device"], ["light", "Light"], ["dark", "Dark"]];
+  const draw = () => out.replaceChildren(...opts.map(([v, l]) => {
+    const on = mcaTheme.choice() === v;
+    return el("button", { type: "button", class: "chip", role: "radio", "aria-checked": String(on), "aria-pressed": String(on), onclick: () => mcaTheme.set(v) }, l);
+  }));
+  document.addEventListener("themechange", draw);
+  draw();
+  return el("div", {}, el("p", { class: "note", style: { marginTop: 0 } }, "Dark mode suits evening sessions. The switch in the top bar flips it for now; this is the lasting choice."), out);
 }
 async function signOut() {
   try { if (!tokenStore.get()) await api("POST", "/auth/logout"); } catch {}
@@ -584,11 +612,18 @@ VIEWS.today = async (notice = null) => {
   if (notice instanceof Node) out.append(notice);
   else api("GET", "/queue/refresh").then((p) => { if (p.requestedAt && !p.done && Date.now() - new Date(p.requestedAt) < 8 * 60_000) watch(p.requestedAt); }).catch(() => {});
   const pending = q.items.filter((i) => i.state === "queued").length;
-  const head = pageHead("Today",
-    q.items.length ? `${plural(pending, "role")} to review. Approve what you'll apply to, ask for a referral first where you can, then open the packet.` : null,
-    el("a", { class: "btn quiet", href: "#/score" }, "Score a posting"), build);
+  const now = new Date();
+  const head = el("div", { class: "today-head" },
+    el("h1", {}, el("span", { class: "wd" }, now.toLocaleDateString(undefined, { weekday: "long" })),
+      now.toLocaleDateString(undefined, { day: "numeric", month: "long" })),
+    el("div", { class: "acts" }, el("a", { class: "btn quiet", href: "#/score" }, "Score a posting"), build),
+    q.items.length ? el("p", { class: "lede" }, pending
+      ? `${plural(pending, "role")} to review. Approve what you'll apply to, ask for a referral first where you can, then open the packet.`
+      : "Everything in today's queue has a decision. Open the packets for the roles you approved.") : null);
   const excluded = el("div");
-  render(await windowStrip(timing), head, out,
+  let line = q.items.length ? dayLine(q.items) : null;
+  onQueueChange = () => { if (line && line.isConnected) { const n = dayLine(q.items); line.replaceWith(n); line = n; } };
+  render(head, await windowStrip(timing), line, out,
     !state.me.onboarding.complete ? msg("hold", "Setup isn't finished, so the queue may be thin. ", el("a", { href: "#/setup" }, "Finish setup")) : null,
     q.items.length ? list : el("div", { class: "sheet empty" }, el("h3", {}, "Nothing queued for today"),
       el("p", { class: "note measure" }, "The queue is rebuilt every morning at 06:05 UTC from your targets, confirmed facts and the employers that sponsor. Build it now, or widen your targets in Profile."),
@@ -601,6 +636,18 @@ VIEWS.today = async (notice = null) => {
       el("p", { class: "note" }, "Every job the builder skipped, with the reason. Change a setting if a reason looks wrong."),
       el("ul", { class: "list" }, run.excluded.slice(0, 200).map((x) => el("li", { class: "note" }, x.reason)))));
 };
+let onQueueChange = () => {};
+// Today's line: one stop per role in the queue, filled once you approve or apply.
+function dayLine(items) {
+  const moved = (i) => !["queued", "skipped"].includes(i.state);
+  const done = items.filter(moved).length;
+  const order = [...items].sort((a, b) => Number(moved(b)) - Number(moved(a)) || Number(a.state === "skipped") - Number(b.state === "skipped"));
+  const pct = items.length > 1 ? ((Math.max(done, 1) - 1) / (items.length - 1)) * 100 : done ? 100 : 0;
+  return el("div", { class: "dayline" },
+    el("div", { class: "count" }, el("b", {}, done), ` of ${items.length} approved`),
+    el("ol", { style: { "--done": `${done ? pct : 0}%` }, "aria-hidden": "true" },
+      order.map((i) => el("li", { class: moved(i) ? "on" : i.state === "skipped" ? "skip" : "" }, el("span")))));
+}
 function payLine(item) {
   const posted = item.pay_max || item.pay_min ? `${item.pay_min ? money(item.pay_min, item.pay_currency) + " – " : ""}${money(item.pay_max || item.pay_min, item.pay_currency)}` : null;
   const b = item.pay_benchmark;
@@ -622,16 +669,16 @@ function queueRow(item) {
     if (item.contacts && !item.referral_name) acts.append(btn("Referrals", { small: true, onclick: () => showReferrals(item, drawer) }));
     if (item.state === "queued") {
       const ap = btn("Approve", { kind: "primary", small: true, icon: "check" });
-      action(ap, drawer, async () => { await moveTo(item.id, "approved"); item.state = "approved"; li.replaceWith(queueRow(item)); });
+      action(ap, drawer, async () => { await moveTo(item.id, "approved"); item.state = "approved"; li.replaceWith(queueRow(item)); onQueueChange(); });
       const sk = btn("Skip", { small: true, kind: "quiet" });
-      action(sk, drawer, async () => { await moveTo(item.id, "skipped"); li.classList.add("done"); acts.replaceChildren(el("span", { class: "note" }, "Skipped")); });
-      acts.append(el("a", { class: "btn small", href: `#/packet/${item.job_id}` }, "Packet"), sk, ap);
+      action(sk, drawer, async () => { await moveTo(item.id, "skipped"); item.state = "skipped"; onQueueChange(); li.classList.add("done"); acts.replaceChildren(el("span", { class: "note" }, "Skipped")); });
+      acts.append(el("a", { class: "btn small quiet", href: `#/packet/${item.job_id}` }, "Packet"), sk, ap);
     } else acts.append(el("a", { class: "btn small primary", href: `#/packet/${item.job_id}` }, "Open packet", icon("arrow")));
   };
   draw();
   append(li, [
-    el("div", { class: "fit", title: "Fit score out of 100, from your confirmed facts" }, item.fit_score ?? "–", el("small", {}, "fit")),
-    el("div", {}, el("h3", {}, coName(item.company_id, item.company), el("span", { class: "title" }, item.title)),
+    el("div", { class: `fit${(item.fit_score ?? 0) < 60 ? " low" : ""}`, title: "Fit score out of 100, from your confirmed facts" }, item.fit_score ?? "–", el("small", {}, "fit")),
+    el("div", {}, el("h3", {}, routeBadge(item.company_id, item.company), el("span", { class: "title" }, item.title)),
       el("div", { class: "meta" }, [item.location_text, item.remote_type, payLine(item)].filter(Boolean).join(" · ")),
       tags.length ? el("div", { class: "tags" }, tags) : null,
       item.notes ? el("p", { class: "note" }, item.notes) : null),
@@ -859,7 +906,7 @@ VIEWS.packet = async (jobId) => {
   const b = p.payBenchmark;
   const meta = [p.job.location_text, p.job.remote_type, a && STATE_LABEL[a.state]].filter(Boolean).join(" · ");
   const head = el("div", { class: "page-head" },
-    el("div", { class: "grow" }, el("h1", { class: "co-head" }, bullet(p.job.company_id || p.job.company), el("span", {}, p.job.title, el("span", { class: "at" }, ` at ${p.job.company}`))),
+    el("div", { class: "grow" }, el("div", { class: "co-badge" }, routeBadge(p.job.company_id || p.job.company, p.job.company)), el("h1", { class: "co-head" }, p.job.title),
       el("p", { class: "lede" }, meta, b ? ` · ${b.scope === "company" ? "This employer's filed" : "Market"} median ${money(b.p50, b.currency)}, middle half ${money(b.p25, b.currency)}–${money(b.p75, b.currency)} (${plural(b.n, "filing")})` : "")),
     p.job.apply_url ? el("a", { class: "btn primary", href: p.job.apply_url, target: "_blank", rel: "noopener noreferrer" }, "Open application form", icon("out")) : null);
   const italian = p.language === "it";
@@ -999,7 +1046,7 @@ VIEWS.followups = async () => {
   const out = el("div", { "aria-live": "polite" });
   const items = f.items.map((it) => {
     const node = el("li", { class: "person" });
-    const head = el("div", {}, el("h3", {}, coName(it.companyId, it.company), " ", el("span", { style: { fontWeight: 500 } }, it.title)),
+    const head = el("div", {}, el("h3", { class: "badged" }, routeBadge(it.companyId, it.company), el("span", { style: { fontWeight: 600 } }, it.title)),
       el("div", { class: "note" }, it.kind === "thank_you" ? `Interview ${fmtDay(it.interviewAt)}: send a thank-you within a day.` : it.kind === "follow_up" ? `${it.daysQuiet} days without a reply${it.sent ? `, ${plural(it.sent, "follow-up")} sent` : ""}.` : it.note));
     if (it.kind === "consider_closing") {
       const close = btn("Close it", { small: true });
@@ -1231,7 +1278,7 @@ function timingSheet(p, timing) {
 }
 
 // ---------------------------------------------------------------- settings
-const SETTINGS = [["answers", "Answer bank"], ["work", "Work authorization"], ["companies", "Companies"], ["email", "Email forwarding"], ["connectors", "AI connectors"], ["ai", "Your AI key"], ["plan", "Plan"], ["account", "Account"]];
+const SETTINGS = [["appearance", "Appearance"], ["answers", "Answer bank"], ["work", "Work authorization"], ["companies", "Companies"], ["email", "Email forwarding"], ["connectors", "AI connectors"], ["ai", "Your AI key"], ["plan", "Plan"], ["account", "Account"]];
 VIEWS.settings = async (section) => {
   const [answers, p, prefs, tokens, aiKey, billing, inbound] = await Promise.all([
     api("GET", "/answers"), api("GET", "/profile").catch(() => null), api("GET", "/preferences"), api("GET", "/tokens"), api("GET", "/ai/key"), api("GET", "/billing"),
@@ -1242,6 +1289,7 @@ VIEWS.settings = async (section) => {
     el("div", { class: "split settings" },
       el("nav", { class: "section-nav", "aria-label": "Settings sections" }, SETTINGS.map(([id, l]) => el("a", { href: `#/settings/${id}`, onclick: (e) => { e.preventDefault(); document.getElementById(`s-${id}`).scrollIntoView({ behavior: "smooth" }); history.replaceState(null, "", `#/settings/${id}`); } }, l))),
       el("div", {},
+        sec("appearance", "Appearance", appearance()),
         sec("answers", "Answer bank", answerBank(answers, (p && p.workAuth) || [])),
         sec("work", "Work authorization", workAuth(p)),
         sec("companies", "Companies", companies(prefs.items)),

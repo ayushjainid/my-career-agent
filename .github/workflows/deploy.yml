@@ -90,7 +90,7 @@ jobs:
       - name: Version the web files
         run: |
           v="${GITHUB_SHA::7}"
-          sed -i -E "s#(href|src)=\"/(app\.css|app\.js|resume-step\.js)\"#\1=\"/\2?v=$v\"#g" apps/api/public/index.html
+          sed -i -E "s#(href|src)=\"/(app\.css|app\.js|resume-step\.js|theme\.js)\"#\1=\"/\2?v=$v\"#g" apps/api/public/index.html
           grep -c "?v=$v" apps/api/public/index.html
       - run: node scripts/db-urls.mjs
       - id: wrangler
