@@ -1,0 +1,18 @@
+name,ats_vendor,ats_board,domain,ats_region,aliases
+Stripe,greenhouse,stripe,stripe.com,,Stripe Inc;Stripe Payments Europe Limited;Stripe Technology Europe Limited
+Databricks,greenhouse,databricks,databricks.com,,Databricks Inc
+Datadog,greenhouse,datadog,datadoghq.com,,Datadog Inc;Datadog Ireland Limited
+Intercom,greenhouse,intercom,intercom.com,,Intercom Inc;Intercom R&D Unlimited Company
+Cloudflare,greenhouse,cloudflare,cloudflare.com,,Cloudflare Inc
+Airbnb,greenhouse,airbnb,airbnb.com,,Airbnb Inc;Airbnb Ireland UC
+Coinbase,greenhouse,coinbase,coinbase.com,,Coinbase Inc;Coinbase Europe Limited
+Notion,ashby,notion,notion.so,,Notion Labs Inc
+Ramp,ashby,ramp,ramp.com,,Ramp Business Corporation
+Figma,greenhouse,figma,figma.com,,Figma Inc
+Anthropic,greenhouse,anthropic,anthropic.com,,Anthropic PBC
+Squarespace,greenhouse,squarespace,squarespace.com,,Squarespace Inc;Squarespace Ireland Limited
+Toast,greenhouse,toast,toasttab.com,,Toast Inc;Toast Ireland Limited
+Robinhood,greenhouse,robinhood,robinhood.com,,Robinhood Markets Inc;Robinhood Financial LLC
+MongoDB,greenhouse,mongodb,mongodb.com,,MongoDB Inc;MongoDB Limited
+Satispay,ashby,satispay,satispay.com,,Satispay S.p.A.;Satispay SpA
+Scalapay,greenhouse,scalapaysrl,scalapay.com,,Scalapay S.r.l.;Scalapay Srl
