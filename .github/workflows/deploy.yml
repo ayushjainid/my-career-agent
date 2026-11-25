@@ -86,6 +86,12 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build:web
+      # Stamp the page's own files with this commit so browsers fetch the new ones after a deploy.
+      - name: Version the web files
+        run: |
+          v="${GITHUB_SHA::7}"
+          sed -i -E "s#(href|src)=\"/(app\.css|app\.js|resume-step\.js)\"#\1=\"/\2?v=$v\"#g" apps/api/public/index.html
+          grep -c "?v=$v" apps/api/public/index.html
       - run: node scripts/db-urls.mjs
       - id: wrangler
         uses: cloudflare/wrangler-action@v3
