@@ -230,6 +230,9 @@ export async function runQueueForUser(db: TenantDb, userId: string, today: Date,
   const tto = timeToOfferDays(learned.days);
   input.timeToOfferDays = () => tto;
   const result = buildDailyQueue(input);
+  // An empty catalog otherwise reads as "queued 0, left out 0" with no reason given.
+  if (!input.jobs.length && !result.note)
+    result.note = "There are no open jobs to choose from yet. Jobs come from the companies in the catalog, which is loaded by the Seed companies workflow and refreshed every 3 hours.";
   await saveQueue(db, userId, today, result);
   return result;
 }

@@ -534,17 +534,19 @@ async function windowStrip(timing) {
       el("span", {}, w.source === "yours" ? "Window set by you" : w.source === "estimated" ? "Window estimated from live processes" : "Set a target date in Profile")),
     el("a", { href: "#/applications" }, "See the map"));
 }
-VIEWS.today = async () => {
+VIEWS.today = async (notice = null) => {
   if (!state.me.onboarding.complete && !state.me.hasProfile) { location.hash = "#/setup"; return; }
   const [q, timing, followups] = await Promise.all([api("GET", "/queue"), api("GET", "/timing"), api("GET", "/followups").catch(() => ({ items: [] }))]);
   state.followupCount = followups.items.length; shell("today");
   const out = el("div", { "aria-live": "polite" });
   const list = el("ul", { class: "queue", "aria-label": "Today's queue" });
   const build = btn(q.items.length ? "Rebuild queue" : "Build today's queue", { kind: q.items.length ? "" : "primary" });
+  // The page redraws after a build, so the result is handed to the new page, not this one.
+  if (notice instanceof Node) out.append(notice);
   action(build, out, async () => {
     const r = await api("POST", "/queue/build");
-    await VIEWS.today();
-    clear(out, msg("go", `Queued ${r.queued}. Left out ${r.excluded}${r.heldBack ? `, held back ${r.heldBack} for your offer window` : ""}.${r.note ? ` ${r.note}` : ""}`));
+    const none = !r.queued && !r.excluded && !r.heldBack;
+    await VIEWS.today(msg(none ? "hold" : "go", none ? (r.note || "No jobs matched yet.") : `Queued ${r.queued}. Left out ${r.excluded}${r.heldBack ? `, held back ${r.heldBack} for your offer window` : ""}.${r.note ? ` ${r.note}` : ""}`));
   });
   const pending = q.items.filter((i) => i.state === "queued").length;
   const head = pageHead("Today",
