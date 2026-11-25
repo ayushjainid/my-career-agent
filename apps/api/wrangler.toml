@@ -3,6 +3,10 @@ main = "src/index.ts"
 compatibility_date = "2024-12-01"
 compatibility_flags = ["nodejs_compat"]
 
+# The app's home. The workers.dev address keeps working too, so old links and bookmarks still open.
+workers_dev = true
+routes = [{ pattern = "app.mycareeragent.dev", custom_domain = true }]
+
 # Static web app (onboarding, queue, copy-assist panel). Requests to static assets are free.
 [assets]
 directory = "./public"
@@ -17,6 +21,7 @@ crons = []
 [vars]
 DEV_MODE = "false"
 INGEST_BOARDS_PER_RUN = "40"
+APP_URL = "https://app.mycareeragent.dev"          # links in emails the app sends
 GITHUB_REPO = "ayushjainid/my-career-agent"     # holds jobs.yml, started by "Build today's queue"
 INBOUND_DOMAIN = "in.mycareeragent.dev"   # Email Routing catch-all on this subdomain sends to this Worker
 INVITE_REQUIRED = "true"                        # beta: sign-up needs an invite code

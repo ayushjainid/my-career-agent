@@ -114,7 +114,7 @@ the `gmail.metadata` scope: senders, subjects and dates, never bodies. The GitHu
    connection after 7 days. Without Google's verification, people see an "unverified app" warning
    (Advanced → Go to …) and the app is capped at 100 users; that's fine for the beta.
 5. **Clients → Create client** → Web application. Authorized redirect URI:
-   `https://my-career-agent-api.ayush-compass.workers.dev/api/gmail/callback`
+   `https://app.mycareeragent.dev/api/gmail/callback`
 6. Add the client ID and secret as repository secrets `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`,
    then run **Deploy**. The deploy copies them to the Worker; the GitHub job reads them directly.
 
