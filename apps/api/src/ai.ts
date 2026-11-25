@@ -16,20 +16,21 @@ type Provider = keyof typeof DEFAULT_MODELS;
 const b64 = (b: ArrayBuffer | Uint8Array) => btoa(String.fromCharCode(...new Uint8Array(b)));
 const unb64 = (s: string): Uint8Array<ArrayBuffer> => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 
-async function aesKey(env: Env): Promise<CryptoKey> {
+/** One key per purpose, all derived from AI_KEY_SECRET, so an AI key and a Gmail token never share a key. */
+async function aesKey(env: Env, purpose: string): Promise<CryptoKey> {
   const secret = env.AI_KEY_SECRET;
   if (!secret || secret.length < 16) throw new Error("AI_KEY_SECRET is not configured");
-  const raw = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`my-career-agent:ai-key:${secret}`));
+  const raw = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`my-career-agent:${purpose}:${secret}`));
   return crypto.subtle.importKey("raw", raw, "AES-GCM", false, ["encrypt", "decrypt"]);
 }
-export async function encryptSecret(env: Env, plain: string, userId: string) {
+export async function encryptSecret(env: Env, plain: string, userId: string, purpose = "ai-key") {
   const iv = crypto.getRandomValues(new Uint8Array(12));
   // The user id is bound as additional data: a row copied to another user will not decrypt.
-  const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData: new TextEncoder().encode(userId) }, await aesKey(env), new TextEncoder().encode(plain));
+  const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData: new TextEncoder().encode(userId) }, await aesKey(env, purpose), new TextEncoder().encode(plain));
   return { ciphertext: b64(ct), iv: b64(iv) };
 }
-export async function decryptSecret(env: Env, ciphertext: string, iv: string, userId: string): Promise<string> {
-  const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(iv), additionalData: new TextEncoder().encode(userId) }, await aesKey(env), unb64(ciphertext));
+export async function decryptSecret(env: Env, ciphertext: string, iv: string, userId: string, purpose = "ai-key"): Promise<string> {
+  const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(iv), additionalData: new TextEncoder().encode(userId) }, await aesKey(env, purpose), unb64(ciphertext));
   return new TextDecoder().decode(pt);
 }
 

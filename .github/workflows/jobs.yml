@@ -47,6 +47,14 @@ jobs:
       - name: Fetch job boards
         # On demand, skip boards fetched in the last hour so repeated clicks stay quick.
         run: node dist/jobs-runner.mjs fetch --stale-minutes ${{ github.event_name == 'workflow_dispatch' && (inputs.stale_minutes || '60') || '0' }}
+      # Before building queues, so an emailed rejection or invitation is reflected in today's queue.
+      - name: Read job emails from Gmail
+        continue-on-error: true
+        run: node dist/jobs-runner.mjs gmail
+        env:
+          AI_KEY_SECRET: ${{ secrets.AI_KEY_SECRET }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
       - name: Build queues
         if: github.event.schedule == '5 6 * * *' || inputs.user_id != '' || inputs.all_queues
         run: |

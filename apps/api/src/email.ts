@@ -66,8 +66,30 @@ export async function processInbound(db: TenantDb, m: InboundMessage): Promise<I
   const [[route] = []] = await db.asSystem([stmt(`SELECT user_id FROM mca.inbound_route WHERE local_part = $1`, local)]);
   const userId = route?.user_id as string | undefined;
   if (!userId) return { accepted: false };
+  const r = await processForUser(db, userId, { from: m.from, subject: m.subject, body: m.body, source: "forward" });
+  return { accepted: true, ...r };
+}
 
-  const kind = classifyEmail(m.from, m.subject, m.body);
+const ATS_SENDER = /@(?:[a-z0-9-]+\.)*(?:greenhouse\.io|greenhouse-mail\.io|lever\.co|hire\.lever\.co|ashbyhq\.com|myworkday\.com|myworkdayjobs\.com|smartrecruiters\.com|workablemail\.com|workable\.com|icims\.com|jobvite\.com)>?\s*$/i;
+
+/**
+ * Whether a message from someone's whole inbox (Gmail) is about a job application. Forwarded mail
+ * is chosen by the person; a mailbox is not, so anything else is skipped and never stored.
+ */
+export function isJobEmail(from: string, subject: string): boolean {
+  const kind = classifyEmail(from, subject);
+  return kind === "application_confirmation" || kind === "rejection" || kind === "interview_invite" || ATS_SENDER.test(from);
+}
+
+export interface UserMessage { from: string; subject: string; body?: string; source: "forward" | "gmail"; externalId?: string; receivedAt?: Date }
+
+/** Classifies one message for a known user, moves the matching application, and records it. */
+export async function processForUser(db: TenantDb, userId: string, m: UserMessage): Promise<{ kind: EmailClass; action: string | null; applicationId: string | null; duplicate?: boolean }> {
+  if (m.externalId) {
+    const [[seen] = []] = await db.asUser(userId, [stmt(`SELECT 1 AS x FROM mca.inbound_email WHERE external_id = $1`, m.externalId)]);
+    if (seen) return { kind: "other", action: null, applicationId: null, duplicate: true };
+  }
+  const kind = classifyEmail(m.from, m.subject, m.body ?? "");
   const names = [companyFromSubject(m.subject), companyFromSender(m.from)].filter((x): x is string => !!x).map(normalizeCompanyName).filter(Boolean);
   const move = MOVES[kind];
   let applicationId: string | null = null;
@@ -105,11 +127,12 @@ export async function processInbound(db: TenantDb, m: InboundMessage): Promise<I
     }
   }
   await db.asUser(userId, [
-    stmt(`INSERT INTO mca.inbound_email (user_id, from_address, subject, classification, company_norm, application_id, action)
-          VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      userId, m.from.slice(0, 300), m.subject.slice(0, 500), kind, names[0] ?? null, applicationId, action),
+    stmt(`INSERT INTO mca.inbound_email (user_id, from_address, subject, classification, company_norm, application_id, action, source, external_id, received_at)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, coalesce($10::timestamptz, now())) ON CONFLICT DO NOTHING`,
+      userId, m.from.slice(0, 300), m.subject.slice(0, 500), kind, names[0] ?? null, applicationId, action, m.source, m.externalId ?? null,
+      m.receivedAt ? m.receivedAt.toISOString() : null),
   ]);
-  return { accepted: true, kind, action, applicationId };
+  return { kind, action, applicationId };
 }
 
 async function readSample(raw: ReadableStream<Uint8Array>, limit = 20_000): Promise<string> {

@@ -287,6 +287,9 @@ account.get("/account/export", async (c) => {
   const [email] = (await c.get("db").asSystem([stmt(`SELECT mca.account_email($1) AS email`, uid)]))[0] ?? [];
   const data: Record<string, unknown> = { exportedAt: new Date().toISOString(), account: { userId: uid, email: email?.email ?? null } };
   EXPORT_TABLES.forEach((t, i) => { data[t] = results[i] ?? []; });
+  // The Gmail link without its token: the encrypted token is a credential, not your data.
+  const [gmail = []] = await c.get("db").asUser(uid, [stmt(`SELECT email, connected_at, last_sync_at, last_error FROM mca.gmail_link`)]);
+  data.gmail_link = gmail;
   c.header("Content-Disposition", `attachment; filename="my-career-agent-export-${new Date().toISOString().slice(0, 10)}.json"`);
   return c.json(data);
 });

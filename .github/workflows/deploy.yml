@@ -107,6 +107,18 @@ jobs:
             AI_KEY_SECRET
         env:
           API_TOKENS: founder:${{ secrets.MCA_TOKEN }}
+      # Optional: "Connect Gmail" (see DEPLOY.md). Skipped until both are set.
+      - name: Google sign-in for Gmail
+        if: env.GOOGLE_CLIENT_ID != '' && env.GOOGLE_CLIENT_SECRET != ''
+        working-directory: apps/api
+        run: |
+          printf '%s' "$GOOGLE_CLIENT_ID" | npx wrangler secret put GOOGLE_CLIENT_ID
+          printf '%s' "$GOOGLE_CLIENT_SECRET" | npx wrangler secret put GOOGLE_CLIENT_SECRET
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       # Optional: lets "Build today's queue" start the GitHub job (see DEPLOY.md). Skipped until set.
       - name: On-demand fetch token
         if: env.GH_DISPATCH_TOKEN != ''

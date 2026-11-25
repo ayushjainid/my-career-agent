@@ -277,7 +277,7 @@ async function loadMe() {
 
 const VIEWS = {};
 async function route() {
-  const parts = location.hash.replace(/^#\/?/, "").split("/");
+  const parts = location.hash.replace(/^#\/?/, "").split("?")[0].split("/");
   let [name = "", ...args] = parts;
   args = args.map(decodeURIComponent);
   if (["privacy", "terms"].includes(name)) { shell(name); await VIEWS[name](); return; }
@@ -1041,7 +1041,8 @@ function answersEditor(app, existing, facts, job) {
 
 // ---------------------------------------------------------------- follow-ups
 VIEWS.followups = async () => {
-  const [f, inbound] = await Promise.all([api("GET", "/followups"), api("GET", "/inbound").catch((e) => (e.status === 409 ? null : Promise.reject(e)))]);
+  const [f, inbound, gmail] = await Promise.all([api("GET", "/followups"), api("GET", "/inbound").catch((e) => (e.status === 409 ? null : Promise.reject(e))),
+    api("GET", "/gmail").catch(() => null)]);
   state.followupCount = f.items.filter((x) => x.kind !== "consider_closing").length; shell("followups");
   const out = el("div", { "aria-live": "polite" });
   const items = f.items.map((it) => {
@@ -1067,16 +1068,42 @@ VIEWS.followups = async () => {
     el("section", { class: "sheet" }, el("div", { class: "sheet-head" }, el("h2", {}, "Due now"), el("span", { class: "note" }, "At most two follow-ups per application")),
       items.length ? el("ul", { class: "list" }, items) : el("div", { class: "empty", style: { padding: "8px 0" } }, el("h3", {}, "Nothing due"),
         el("p", { class: "note measure" }, "A follow-up comes due after 10 quiet days, and a thank-you the day you move an application to Interview."))),
-    inboundSheet(inbound));
+    inboundSheet(inbound, gmail));
 };
-function inboundBody(inbound) {
+// Job emails reach the app two ways: Gmail (signed in with Google, metadata only) or a forwarding
+// address (when the server has a mail domain). Either moves applications the same way.
+function gmailBody(g) {
+  const out = el("div", { "aria-live": "polite" });
+  if (!g || !g.available) return null;
+  if (!g.link) {
+    const connect = btn("Connect Gmail", { kind: "primary", icon: "out" });
+    action(connect, out, async () => { const r = await api("POST", "/gmail/connect"); location.href = r.url; });
+    return el("div", { class: "stack" },
+      el("p", { class: "note measure", style: { marginTop: 0 } },
+        "Sign in with Google and the app checks your inbox every 3 hours for application confirmations, interview invitations and rejections, and moves the matching application. It reads senders and subjects only, never the text of your emails, and keeps only job-related ones. You can disconnect at any time."),
+      out, el("div", { class: "row" }, connect));
+  }
+  const l = g.link;
+  const check = btn("Check now", { small: true });
+  action(check, out, async () => { await api("POST", "/gmail/sync"); clear(out, msg("info", "Checking your inbox. New job emails show up below in a minute or two.")); });
+  const off = confirmBtn("Disconnect", "Press again to disconnect", out, async () => { await api("DELETE", "/gmail"); toast("Gmail disconnected"); route(); });
+  off.classList.add("small");
+  return el("div", { class: "stack" },
+    el("div", { class: "row" }, el("span", { class: "tag go" }, icon("check"), "Gmail connected"), el("strong", {}, l.email),
+      el("span", { class: "note" }, l.first_sync_pending ? "First check reads the last 30 days" : l.last_sync_at ? `Last checked ${fmtDate(l.last_sync_at, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : "")),
+    l.last_error ? msg("stop", l.last_error) : null,
+    out, el("div", { class: "row" }, check, off));
+}
+function inboundBody(inbound, gmail = null) {
   if (!inbound) return [el("p", { class: "note" }, "Finish setup to get your forwarding address.")];
   const recent = inbound.recent || [];
+  const viaGmail = gmailBody(gmail);
   return [
-    inbound.address ? el("div", { class: "stack" },
+    viaGmail,
+    inbound.address ? el("div", { class: "stack", style: viaGmail ? { marginTop: "20px", paddingTop: "16px", borderTop: "1px solid var(--rule)" } : {} },
       el("p", { class: "note measure", style: { marginTop: 0 } }, "Set a filter in your email to forward messages from employers and applicant tracking systems to this address. Confirmations, interview invitations and rejections move the application automatically; everything else is logged."),
       el("div", { class: "secret" }, el("span", {}, inbound.address), btn("Copy", { small: true, icon: "copy", onclick: () => copy(inbound.address) })))
-      : msg("info", "Email forwarding isn't switched on for this server yet. Until it is, update stages from Applications."),
+      : viaGmail ? null : msg("info", "Reading job emails isn't switched on for this server yet: it needs a Google sign-in client for Gmail or a mail domain for forwarding (see DEPLOY.md). Until then, update stages from Applications."),
     recent.length ? el("div", { class: "tablebox", style: { marginTop: "16px" } }, el("table", { class: "responsive" },
       el("thead", {}, el("tr", {}, ["Received", "From", "Subject", "Read as", "Result"].map((h) => el("th", { scope: "col" }, h)))),
       el("tbody", {}, recent.map((m) => el("tr", {},
@@ -1086,7 +1113,26 @@ function inboundBody(inbound) {
         el("td", { "data-label": "Result" }, m.action ? `${m.action.replace(/_/g, " ")}${m.company ? ` \u00b7 ${m.company}` : ""}` : "Logged")))))) : null,
   ];
 }
-const inboundSheet = (inbound) => el("section", { class: "sheet", style: { marginTop: "16px" }, id: "forwarding" }, el("div", { class: "sheet-head" }, el("h2", {}, "Forward employer emails")), inboundBody(inbound));
+const inboundSheet = (inbound, gmail) => el("section", { class: "sheet", style: { marginTop: "16px" }, id: "forwarding" }, el("div", { class: "sheet-head" }, el("h2", {}, "Job emails")), inboundBody(inbound, gmail));
+
+// Google sends the browser back here (via /api/gmail/callback); finish with this session's sign-in.
+VIEWS.gmail = async () => {
+  const q = new URLSearchParams(location.hash.split("?")[1] || "");
+  history.replaceState(null, "", "#/settings/email"); // the code is single-use; keep it out of history
+  if (q.get("error") || !q.get("code")) {
+    render(pageHead("Gmail not connected"), msg("hold", q.get("error") === "access_denied" ? "You didn't allow access, so nothing was connected." : "Google didn't finish the sign-in. Try again from Settings."),
+      el("a", { class: "btn", href: "#/settings/email" }, "Back to Settings"));
+    return;
+  }
+  render(pageHead("Connecting Gmail"), loading());
+  try {
+    const r = await api("POST", "/gmail/exchange", { code: q.get("code"), state: q.get("state") });
+    toast(`Gmail connected: ${r.email}`);
+    await VIEWS.settings("email");
+  } catch (e) {
+    render(pageHead("Gmail not connected"), msg("stop", e.message), el("a", { class: "btn", href: "#/settings/email" }, "Back to Settings"));
+  }
+};
 
 // ---------------------------------------------------------------- network
 function linkedinImport(after) {
@@ -1278,11 +1324,11 @@ function timingSheet(p, timing) {
 }
 
 // ---------------------------------------------------------------- settings
-const SETTINGS = [["appearance", "Appearance"], ["answers", "Answer bank"], ["work", "Work authorization"], ["companies", "Companies"], ["email", "Email forwarding"], ["connectors", "AI connectors"], ["ai", "Your AI key"], ["plan", "Plan"], ["account", "Account"]];
+const SETTINGS = [["appearance", "Appearance"], ["answers", "Answer bank"], ["work", "Work authorization"], ["companies", "Companies"], ["email", "Job emails"], ["connectors", "AI connectors"], ["ai", "Your AI key"], ["plan", "Plan"], ["account", "Account"]];
 VIEWS.settings = async (section) => {
-  const [answers, p, prefs, tokens, aiKey, billing, inbound] = await Promise.all([
+  const [answers, p, prefs, tokens, aiKey, billing, inbound, gmail] = await Promise.all([
     api("GET", "/answers"), api("GET", "/profile").catch(() => null), api("GET", "/preferences"), api("GET", "/tokens"), api("GET", "/ai/key"), api("GET", "/billing"),
-    api("GET", "/inbound").catch(() => null)]);
+    api("GET", "/inbound").catch(() => null), api("GET", "/gmail").catch(() => null)]);
   state.aiKey = aiKey.key;
   const sec = (id, title, ...body) => el("section", { class: "sheet", id: `s-${id}`, "aria-labelledby": `h-${id}` }, el("h2", { id: `h-${id}` }, title), body);
   render(pageHead("Settings"),
@@ -1293,7 +1339,7 @@ VIEWS.settings = async (section) => {
         sec("answers", "Answer bank", answerBank(answers, (p && p.workAuth) || [])),
         sec("work", "Work authorization", workAuth(p)),
         sec("companies", "Companies", companies(prefs.items)),
-        sec("email", "Email forwarding", inboundBody(inbound)),
+        sec("email", "Job emails", inboundBody(inbound, gmail)),
         sec("connectors", "AI connectors", connectors(tokens.items)),
         sec("ai", "Your AI key", aiSettings(aiKey)),
         sec("plan", "Plan", plan(billing)),
@@ -1536,6 +1582,7 @@ VIEWS.privacy = async () => render(el("div", { class: "measure" }, pageHead("Pri
     el("p", {}, "My Career Agent stores what you give it to prepare your applications: your profile, facts you confirm, answers you save, contacts you import from your own LinkedIn export, your applications and their history, and employer emails you choose to forward."),
     el("p", {}, "It's used only to run the service for you. It isn't sold, and it isn't used to train AI models. If you add your own AI key, drafting requests go to that provider under your account."),
     el("p", {}, "Your LinkedIn password is never asked for or stored, and LinkedIn is never scraped."),
+    el("p", {}, "If you connect Gmail, the app gets Google's read-only metadata access: senders, subjects and dates, never the text of your emails or attachments. It keeps only job-related messages (application confirmations, interview invitations, rejections, and mail from applicant tracking systems) and skips everything else without storing it. The Google token is stored encrypted. Disconnecting in Settings deletes it and withdraws the access at Google."),
     el("p", {}, "You can download all your data or delete your account at any time from Settings › Account. Deletion is immediate."),
     el("p", {}, "Data is held on Cloudflare and Neon. Contact details for the data controller will be published here before the beta opens widely."))));
 VIEWS.terms = async () => render(el("div", { class: "measure" }, pageHead("Terms", "Draft for the beta, pending legal review."),

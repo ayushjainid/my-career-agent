@@ -3,6 +3,7 @@
 //
 //   node dist/jobs-runner.mjs fetch [--stale-minutes 60]   fetch boards not fetched in that long (0 = all)
 //   node dist/jobs-runner.mjs queues [--user <id>]         build today's queue for one user, or everyone
+//   node dist/jobs-runner.mjs gmail                        read new job emails for everyone who linked Gmail
 //
 // Needs INGEST_DATABASE_URL (catalog role) and DATABASE_URL (app role, row-level security), which
 // scripts/db-urls.mjs derives from DATABASE_OWNER_URL.
@@ -11,6 +12,7 @@ import { runIngest } from "../apps/api/src/ingest.js";
 import { appDb } from "../apps/api/src/lib/db.js";
 import { neonTenantDb } from "../apps/api/src/lib/tenant.js";
 import { runAllQueues } from "../apps/api/src/queue.js";
+import { syncGmail } from "../apps/api/src/gmail.js";
 
 const [cmd, ...rest] = process.argv.slice(2);
 const flag = (name: string) => {
@@ -38,9 +40,28 @@ async function queues() {
   if (failed.length && failed.length === results.length) process.exitCode = 1;
 }
 
+async function gmail() {
+  if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET || !env.AI_KEY_SECRET) {
+    console.log("Gmail isn't configured (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, AI_KEY_SECRET); skipping.");
+    return;
+  }
+  const sql = appDb(env.DATABASE_URL);
+  const users = ((await sql`SELECT mca.gmail_users() AS user_id`) as Array<{ user_id: string }>).map((u) => u.user_id);
+  const db = neonTenantDb(sql);
+  let stored = 0, moved = 0, failed = 0;
+  for (const u of users) {
+    const r = await syncGmail(env, db, u);
+    stored += r.stored; moved += r.moved;
+    if (r.error) { failed++; console.log(`::warning::A Gmail sync failed: ${r.error}`); }
+  }
+  // Counts only: no addresses, subjects or user ids in the log.
+  console.log(`Gmail: ${users.length} linked, ${stored} job emails recorded, ${moved} applications moved, ${failed} failed.`);
+}
+
 if (cmd === "fetch") await fetchJobs();
+else if (cmd === "gmail") await gmail();
 else if (cmd === "queues") await queues();
 else {
-  console.error("usage: jobs-runner.mjs fetch [--stale-minutes N] | queues [--user ID]");
+  console.error("usage: jobs-runner.mjs fetch [--stale-minutes N] | queues [--user ID] | gmail");
   process.exitCode = 2;
 }

@@ -99,6 +99,7 @@ const env: Env = {
   DATABASE_URL: "local", INGEST_DATABASE_URL: "local", DEV_MODE: "false", INGEST_BOARDS_PER_RUN: "0",
   INBOUND_DOMAIN: "in.localhost", API_TOKENS: `me:${TOKEN}`, ASSETS: assets, TEST_DB: db,
   INVITE_REQUIRED: "false", PBKDF2_ITERATIONS: "20000", AI_KEY_SECRET: "local-dev-only-ai-key-secret-0123456789",
+  ...(process.env.DEV_GOOGLE ? { GOOGLE_CLIENT_ID: "dev-client", GOOGLE_CLIENT_SECRET: "dev-secret" } : {}),
 };
 
 createServer(async (req, res) => {

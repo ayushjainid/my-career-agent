@@ -4,6 +4,7 @@
 import { COUNTRY_INFO, LANGUAGE_LEVELS, canonicalizeSkill, findSkills, isoDate, normalizeCountry, type Seniority } from "@my-career-agent/core";
 import { Hono } from "hono";
 import type { AppBindings } from "./env.js";
+import { startJobs } from "./lib/jobs.js";
 import { stmt } from "./lib/tenant.js";
 import { runQueueForUser } from "./queue.js";
 import { payBenchmarks } from "./timingApi.js";
@@ -280,17 +281,7 @@ profile.post("/queue/refresh", async (c) => {
   if (u.recent) return c.json({ started: false, requestedAt: u.queue_requested_at });
   if (!c.env.GITHUB_DISPATCH_TOKEN || !c.env.GITHUB_REPO)
     return c.json({ error: "Fetching on demand isn't set up yet: add the GH_DISPATCH_TOKEN secret (see DEPLOY.md). New jobs still arrive every 3 hours." }, 503);
-  const r = await fetch(`https://api.github.com/repos/${c.env.GITHUB_REPO}/actions/workflows/jobs.yml/dispatches`, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${c.env.GITHUB_DISPATCH_TOKEN}`,
-      accept: "application/vnd.github+json",
-      "x-github-api-version": "2022-11-28",
-      "user-agent": "my-career-agent",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({ ref: "main", inputs: { user_id: uid } }),
-  });
+  const r = await startJobs(c.env, { user_id: uid });
   if (r.status !== 204) {
     console.error(JSON.stringify({ event: "dispatch_failed", status: r.status }));
     return c.json({ error: `GitHub didn't start the job (HTTP ${r.status}). Check the GH_DISPATCH_TOKEN secret.` }, 502);

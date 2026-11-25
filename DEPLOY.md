@@ -99,6 +99,28 @@ Passwords are hashed with PBKDF2-SHA256. `PBKDF2_ITERATIONS = "50000"` takes abo
 inside the Free plan's 10 ms per request. On Workers Paid, raise it to `"100000"`. Existing
 passwords are re-hashed at the next sign-in.
 
+## Gmail (instead of a forwarding domain)
+
+"Connect Gmail" (Settings › Job emails) signs the person in with Google and reads job emails with
+the `gmail.metadata` scope: senders, subjects and dates, never bodies. The GitHub job syncs every
+3 hours, and right after connecting or "Check now" (that needs `GH_DISPATCH_TOKEN`).
+
+1. [Google Cloud console](https://console.cloud.google.com/) → create a project (e.g. "My Career Agent").
+2. **APIs & Services → Library** → enable the **Gmail API**.
+3. **Google Auth Platform → Branding** (OAuth consent screen): app name, your email as support
+   and developer contact. **Audience**: External. **Data access**: add the scope
+   `https://www.googleapis.com/auth/gmail.metadata`.
+4. **Audience → Publish app** (status *In production*). In *Testing*, Google expires the
+   connection after 7 days. Without Google's verification, people see an "unverified app" warning
+   (Advanced → Go to …) and the app is capped at 100 users; that's fine for the beta.
+5. **Clients → Create client** → Web application. Authorized redirect URI:
+   `https://my-career-agent-api.ayush-compass.workers.dev/api/gmail/callback`
+6. Add the client ID and secret as repository secrets `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`,
+   then run **Deploy**. The deploy copies them to the Worker; the GitHub job reads them directly.
+
+Gmail reading scopes are "restricted": opening to the public beyond 100 users needs Google's
+verification and an annual third-party security assessment.
+
 ## Email forwarding (loop B3)
 
 Forwarding addresses need a domain on Cloudflare:

@@ -25,6 +25,9 @@ export interface Env {
   STRIPE_WEBHOOK_SECRET?: string;
   /** Applications per day without a paid plan, once billing is on. */
   FREE_DAILY_LIMIT?: string;
+  /** Google OAuth client for "Connect Gmail" (gmail.metadata scope). Optional. */
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
   /** Starts the GitHub job that fetches jobs and builds queues (fine-grained token, Actions: write). */
   GITHUB_DISPATCH_TOKEN?: string;
   /** "owner/repo" holding .github/workflows/jobs.yml. */
