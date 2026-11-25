@@ -226,8 +226,8 @@ export async function syncGmail(env: Env, db: TenantDb, userId: string, opts: { 
       const from = h("from"), subject = h("subject");
       if (!isJobEmail(from, subject)) continue;
       const r = await processForUser(db, userId, { from, subject, source: "gmail", externalId: m.id, receivedAt: new Date(Number(m.internalDate)) });
-      if (!r.duplicate) stored++;
-      if (r.action) moved++;
+      if (!r.duplicate && r.status) stored++;
+      if (r.status === "pending") moved++; // suggestions waiting for the person
     }
     await db.asUser(userId, [stmt(`UPDATE mca.gmail_link SET history_id = $1, last_sync_at = now(), last_error = NULL`, latest)]);
     return { read, stored, moved };

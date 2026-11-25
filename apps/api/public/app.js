@@ -564,7 +564,8 @@ async function windowStrip(timing) {
 }
 VIEWS.today = async (notice = null) => {
   if (!state.me.onboarding.complete && !state.me.hasProfile) { location.hash = "#/setup"; return; }
-  const [q, timing, followups] = await Promise.all([api("GET", "/queue"), api("GET", "/timing"), api("GET", "/followups").catch(() => ({ items: [] }))]);
+  const [q, timing, followups, sugg] = await Promise.all([api("GET", "/queue"), api("GET", "/timing"), api("GET", "/followups").catch(() => ({ items: [] })),
+    api("GET", "/inbound/suggestions").catch(() => ({ items: [] }))]);
   state.followupCount = followups.items.length; shell("today");
   const out = el("div", { "aria-live": "polite" });
   const list = el("ul", { class: "queue", "aria-label": "Today's queue" });
@@ -623,7 +624,7 @@ VIEWS.today = async (notice = null) => {
   const excluded = el("div");
   let line = q.items.length ? dayLine(q.items) : null;
   onQueueChange = () => { if (line && line.isConnected) { const n = dayLine(q.items); line.replaceWith(n); line = n; } };
-  render(head, await windowStrip(timing), line, out,
+  render(head, await windowStrip(timing), suggestionsSheet(sugg.items), line, out,
     !state.me.onboarding.complete ? msg("hold", "Setup isn't finished, so the queue may be thin. ", el("a", { href: "#/setup" }, "Finish setup")) : null,
     q.items.length ? list : el("div", { class: "sheet empty" }, el("h3", {}, "Nothing queued for today"),
       el("p", { class: "note measure" }, "The queue is rebuilt every morning at 06:05 UTC from your targets, confirmed facts and the employers that sponsor. Build it now, or widen your targets in Profile."),
@@ -636,6 +637,33 @@ VIEWS.today = async (notice = null) => {
       el("p", { class: "note" }, "Every job the builder skipped, with the reason. Change a setting if a reason looks wrong."),
       el("ul", { class: "list" }, run.excluded.slice(0, 200).map((x) => el("li", { class: "note" }, x.reason)))));
 };
+// Email proposes, you decide: each forwarded email that would change something waits here.
+function suggestionsSheet(items) {
+  if (!items || !items.length) return null;
+  const list = el("ul", { class: "list suggestions" });
+  const box = el("section", { class: "sheet", "aria-labelledby": "h-sugg", style: { marginBottom: "var(--s5)" } },
+    el("div", { class: "sheet-head" }, el("h2", { id: "h-sugg" }, "From your email"), el("span", { class: "note" }, `${plural(items.length, "update")} to confirm`)), list);
+  const row = (it) => {
+    const s = it.suggestion || {};
+    const out = el("div", { "aria-live": "polite" });
+    const add = !it.application_id && s.company;
+    const what = add
+      ? el("span", {}, "Add ", el("strong", {}, s.company), s.title ? ` · ${s.title}` : "", "? You applied outside the app.")
+      : el("span", {}, "Move ", routeBadge(it.company_id, it.company), " ", it.title ? el("span", { class: "note" }, `${it.title} `) : "", "to ", el("strong", {}, STATE_LABEL[s.to] || s.to), "?");
+    const yes = btn(add ? "Add" : "Move", { small: true, kind: "primary" });
+    const no = btn("Ignore", { small: true, kind: "quiet" });
+    const li = el("li", { class: "sugg" },
+      el("div", { class: "grow" }, el("div", { class: "what" }, what),
+        el("div", { class: "note" }, `"${short(it.subject || "", 90)}" · ${short(it.from_address || "", 40)} · ${fmtDate(it.received_at, { month: "short", day: "numeric" })}`), out),
+      el("div", { class: "acts" }, no, yes));
+    const done = () => { li.remove(); if (!list.children.length) box.remove(); };
+    action(yes, out, async () => { await api("POST", `/inbound/${it.id}/accept`); toast(add ? `Added ${s.company}` : `Moved to ${STATE_LABEL[s.to] || s.to}`); done(); });
+    action(no, out, async () => { await api("POST", `/inbound/${it.id}/ignore`); done(); });
+    return li;
+  };
+  list.append(...items.map(row));
+  return box;
+}
 let onQueueChange = () => {};
 // Today's line: one stop per role in the queue, filled once you approve or apply.
 function dayLine(items) {
@@ -1070,11 +1098,31 @@ VIEWS.followups = async () => {
         el("p", { class: "note measure" }, "A follow-up comes due after 10 quiet days, and a thank-you the day you move an application to Interview."))),
     inboundSheet(inbound, gmail));
 };
+const EMAIL_KIND = { application_confirmation: "Confirmation", interview_invite: "Interview invitation", rejection: "Rejection", job_alert: "Job alert", recruiter_reply: "Reply", other: "Reply" };
+// The words a Gmail filter forwards on: what job emails say, not who sends them, so employers
+// that aren't on any job board are caught too. The app drops anything that isn't about you.
+const GMAIL_FILTER = '"your application" OR "thank you for applying" OR "thanks for applying" OR "application received" OR "next steps" OR interview OR unfortunately OR "move forward" OR candidacy OR from:(greenhouse.io OR lever.co OR ashbyhq.com OR myworkday.com OR smartrecruiters.com OR icims.com OR workablemail.com OR jobvite.com)';
+function forwardingGuide(inbound) {
+  const code = inbound.forwardingCode;
+  const step = (n, title, ...body) => el("li", {}, el("span", { class: "dot", "aria-hidden": "true" }, n), el("div", {}, el("strong", {}, title), ...body));
+  return el("div", { class: "stack" },
+    el("p", { class: "note measure", style: { marginTop: 0 } }, "Forward job emails here and the app proposes the update: an application moves only when you confirm it on Today. Emails that aren't about your applications are dropped, never stored."),
+    el("ol", { class: "guide" },
+      step(1, "Your forwarding address", el("div", { class: "secret", style: { marginTop: "8px" } }, el("span", {}, inbound.address), btn("Copy", { small: true, icon: "copy", onclick: () => copy(inbound.address) }))),
+      step(2, "Add it in Gmail", el("p", { class: "note" }, "Gmail › Settings › See all settings › Forwarding and POP/IMAP › Add a forwarding address. Gmail sends a confirmation code to it, which shows up here."),
+        code ? el("div", { class: "row", style: { marginTop: "8px" } }, el("span", { class: "tag go" }, icon("check"), "Code from Gmail"), el("strong", { class: "code-big" }, code.code),
+            btn("Copy", { small: true, icon: "copy", onclick: () => copy(code.code) }), code.link ? el("a", { class: "btn small", href: code.link, target: "_blank", rel: "noopener" }, "Confirm in Gmail") : null)
+          : el("p", { class: "note" }, "Waiting for Gmail's confirmation email. Reload this page a minute after adding the address.")),
+      step(3, "Forward only job emails", el("p", { class: "note" }, "In Gmail, open the search options (the sliders in the search bar), paste this into Has the words, then Create filter › Forward it to your address. Leave “Forward a copy of incoming mail” off, so the rest of your mail stays put."),
+        el("div", { class: "secret wrap", style: { marginTop: "8px" } }, el("span", {}, GMAIL_FILTER), btn("Copy", { small: true, icon: "copy", onclick: () => copy(GMAIL_FILTER) }))),
+      step(4, "Anything it misses", el("p", { class: "note" }, "A recruiter writing “free Thursday?” won't match the filter. Forward that one by hand to the same address."))));
+}
 // Job emails reach the app two ways: Gmail (signed in with Google, metadata only) or a forwarding
 // address (when the server has a mail domain). Either moves applications the same way.
 function gmailBody(g) {
   const out = el("div", { "aria-live": "polite" });
-  if (!g || !g.available) return null;
+  // Forwarding is the way in for now; sign-in shows only to manage an existing link.
+  if (!g || !g.available || !g.link) return null;
   if (!g.link) {
     const connect = btn("Connect Gmail", { kind: "primary", icon: "out" });
     action(connect, out, async () => { const r = await api("POST", "/gmail/connect"); location.href = r.url; });
@@ -1100,17 +1148,16 @@ function inboundBody(inbound, gmail = null) {
   const viaGmail = gmailBody(gmail);
   return [
     viaGmail,
-    inbound.address ? el("div", { class: "stack", style: viaGmail ? { marginTop: "20px", paddingTop: "16px", borderTop: "1px solid var(--rule)" } : {} },
-      el("p", { class: "note measure", style: { marginTop: 0 } }, "Set a filter in your email to forward messages from employers and applicant tracking systems to this address. Confirmations, interview invitations and rejections move the application automatically; everything else is logged."),
-      el("div", { class: "secret" }, el("span", {}, inbound.address), btn("Copy", { small: true, icon: "copy", onclick: () => copy(inbound.address) })))
-      : viaGmail ? null : msg("info", "Reading job emails isn't switched on for this server yet: it needs a Google sign-in client for Gmail or a mail domain for forwarding (see DEPLOY.md). Until then, update stages from Applications."),
+    inbound.address ? el("div", { style: viaGmail ? { marginTop: "20px", paddingTop: "16px", borderTop: "1px solid var(--rule)" } : {} }, forwardingGuide(inbound))
+      : viaGmail ? null : msg("info", "Job emails aren't switched on for this server yet: it needs a mail domain for the forwarding address (see DEPLOY.md). Until then, update stages from Applications."),
     recent.length ? el("div", { class: "tablebox", style: { marginTop: "16px" } }, el("table", { class: "responsive" },
       el("thead", {}, el("tr", {}, ["Received", "From", "Subject", "Read as", "Result"].map((h) => el("th", { scope: "col" }, h)))),
       el("tbody", {}, recent.map((m) => el("tr", {},
         el("td", { "data-label": "Received" }, fmtDate(m.received_at, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })),
         el("td", { "data-label": "From" }, short(m.from_address, 40)), el("td", { "data-label": "Subject" }, short(m.subject, 80)),
-        el("td", { "data-label": "Read as" }, m.classification || "\u2013"),
-        el("td", { "data-label": "Result" }, m.action ? `${m.action.replace(/_/g, " ")}${m.company ? ` \u00b7 ${m.company}` : ""}` : "Logged")))))) : null,
+        el("td", { "data-label": "Read as" }, EMAIL_KIND[m.classification] || "\u2013"),
+        el("td", { "data-label": "Result" }, m.status === "pending" ? "Waiting for you on Today" : m.status === "ignored" ? "Ignored"
+          : m.action ? `${m.action === "added" ? "Added" : STATE_LABEL[m.action] || m.action.replace(/_/g, " ")}${m.company ? ` \u00b7 ${m.company}` : ""}` : m.company ? `Noted \u00b7 ${m.company}` : "Noted")))))) : null,
   ];
 }
 const inboundSheet = (inbound, gmail) => el("section", { class: "sheet", style: { marginTop: "16px" }, id: "forwarding" }, el("div", { class: "sheet-head" }, el("h2", {}, "Job emails")), inboundBody(inbound, gmail));

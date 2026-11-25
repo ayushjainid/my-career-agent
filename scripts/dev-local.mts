@@ -2,6 +2,7 @@
 // app, the real migrations, and an in-process Postgres (PGlite) seeded with demo data.
 //   npx tsx scripts/dev-local.mts        then open http://localhost:8788 and sign in with the token printed
 // Data lives in memory and is gone when you stop it.
+import { processInbound } from "../apps/api/src/email.js";
 import { PGlite } from "@electric-sql/pglite";
 import { createServer } from "node:http";
 import { readdirSync, readFileSync } from "node:fs";
@@ -106,6 +107,14 @@ createServer(async (req, res) => {
   const chunks: Buffer[] = [];
   for await (const c of req) chunks.push(c as Buffer);
   const body = chunks.length ? Buffer.concat(chunks) : undefined;
+  // Local only: simulate an email arriving at a forwarding address (Cloudflare's email handler).
+  if (req.url === "/__dev/email" && req.method === "POST") {
+    const m = JSON.parse(String(body));
+    const r = await processInbound(db, { to: m.to, from: m.from, subject: m.subject, body: m.body ?? "" });
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify(r));
+    return;
+  }
   const r = await app.fetch(new Request(`http://localhost:${PORT}${req.url}`, {
     method: req.method, headers: req.headers as Record<string, string>, body: req.method === "GET" || req.method === "HEAD" ? undefined : body,
   }), env);

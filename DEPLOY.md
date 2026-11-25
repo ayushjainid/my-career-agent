@@ -123,6 +123,22 @@ verification and an annual third-party security assessment.
 
 ## Email forwarding (loop B3)
 
+Job emails come in through a forwarding address on a domain you own on Cloudflare:
+
+1. Buy a domain (Cloudflare › Domain Registration; a .com is about $10.44 a year, at cost).
+2. Email Routing › your domain › Settings › Subdomains: add `in`.
+3. On `in.<domain>`: Routing rules › Catch-all › Send to a Worker › `my-career-agent-api` › enable.
+4. Set `INBOUND_DOMAIN = "in.<domain>"` in `apps/api/wrangler.toml` and deploy.
+
+Each person gets an address in Settings › Job emails with a three-step Gmail guide: add the address
+(Gmail's confirmation code appears in the app), then a filter on what job emails say (not who sends
+them), so employers without a job board are caught too. Matching uses the person's applications:
+company name and aliases, the company's email domain, and the job title in the subject. Nothing moves
+by itself: each update waits on Today to be accepted or ignored; a confirmation from a company not yet
+tracked offers to add it. Email that matches nothing is dropped without being stored.
+
+### Earlier notes
+
 Forwarding addresses need a domain on Cloudflare:
 
 1. Add a domain to Cloudflare and turn on **Email Routing** for it, or use a subdomain such as

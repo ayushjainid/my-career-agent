@@ -56,6 +56,10 @@ beforeAll(async () => {
   void co;
 });
 afterEach(() => vi.unstubAllGlobals());
+const acceptLatest = async () => {
+  const { items } = await h.json(await h.call("GET", "/inbound/suggestions", TOKEN_A));
+  return h.json(await h.call("POST", `/inbound/${items[0].id}/accept`, TOKEN_A));
+};
 
 describe("Connect Gmail", () => {
   it("says what's missing when the server has no Google client", async () => {
@@ -111,7 +115,7 @@ describe("Gmail sync", () => {
   const day = 86_400_000;
   const now = new Date("2026-11-25T12:00:00Z");
 
-  it("first sync reads the last 30 days, records job emails only, and moves the application", async () => {
+  it("first sync reads the last 30 days, records job emails only, and proposes the move", async () => {
     inbox = [
       { id: "m1", from: "Acme Recruiting <no-reply@acme.com>", subject: "Thank you for applying to Acme", at: now.getTime() - 3 * day },
       { id: "m2", from: "Mom <mom@example.com>", subject: "Dinner on Sunday?", at: now.getTime() - 2 * day },
@@ -123,6 +127,7 @@ describe("Gmail sync", () => {
     expect(r).toMatchObject({ stored: 1, moved: 1 });
     const { rows } = await h.pg.query<{ subject: string; source: string }>("SELECT subject, source FROM mca.inbound_email WHERE user_id = 'alice'");
     expect(rows).toEqual([{ subject: "Thank you for applying to Acme", source: "gmail" }]); // nothing personal stored
+    await acceptLatest();
     const { rows: app } = await h.pg.query<{ state: string }>("SELECT state FROM mca.application WHERE id = $1", [appId]);
     expect(app[0]!.state).toBe("submitted");
     expect(calls.some((c) => c.endsWith("/messages/old"))).toBe(true); // reached the cut-off, then stopped
@@ -140,6 +145,7 @@ describe("Gmail sync", () => {
     const r = await syncGmail(h.env, h.env.TEST_DB!, "alice", { now });
     expect(r).toMatchObject({ stored: 1, moved: 1 });
     expect(calls.some((c) => c.endsWith("/history"))).toBe(true);
+    await acceptLatest();
     const { rows: app } = await h.pg.query<{ state: string }>("SELECT state FROM mca.application WHERE id = $1", [appId]);
     expect(app[0]!.state).toBe("screen");
     const { rows } = await h.pg.query<{ n: number }>("SELECT count(*)::int AS n FROM mca.inbound_email WHERE user_id = 'alice'");

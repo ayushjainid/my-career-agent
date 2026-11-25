@@ -567,3 +567,19 @@ footer.foot a { color: var(--quiet); }
 /* Answer editor: question, kind and limit share a row on wide screens and stack on phones. */
 .q-grid { grid-template-columns: minmax(0, 2fr) minmax(140px, 1fr) 130px; }
 @media (max-width: 640px) { .q-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .q-grid > :first-child { grid-column: 1 / -1; } }
+
+/* Email suggestions on Today: one decision per row. */
+.suggestions .sugg { display: flex; align-items: center; gap: var(--s4); padding: 12px var(--s5); }
+.suggestions .sugg .what { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 15px; line-height: 1.5; }
+.suggestions .sugg .acts { display: flex; gap: var(--s2); flex: none; }
+@media (max-width: 640px) { .suggestions .sugg { flex-direction: column; align-items: stretch; } .suggestions .sugg .acts { justify-content: flex-end; } }
+
+/* Forwarding set-up: numbered stops on a short line. */
+.guide { list-style: none; margin: var(--s2) 0 0; padding: 0; display: grid; gap: var(--s4); position: relative; }
+.guide li { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: var(--s3); position: relative; }
+.guide li:not(:last-child)::before { content: ""; position: absolute; left: 13px; top: 28px; bottom: calc(-1 * var(--s4)); width: 2px; background: var(--rule-strong); }
+.guide .dot { width: 28px; height: 28px; border-radius: 50%; border: 3px solid var(--ink); display: grid; place-items: center; font: 800 13px/1 var(--display); background: var(--sheet); }
+.guide strong { display: block; font-family: var(--display); font-size: 15px; margin-top: 4px; }
+.guide .note { margin: 4px 0 0; }
+.secret.wrap span { white-space: normal; word-break: break-word; font-size: 12.5px; line-height: 1.5; }
+.code-big { font: 800 20px/1 var(--display); letter-spacing: .04em; }

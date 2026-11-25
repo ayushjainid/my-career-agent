@@ -1,12 +1,17 @@
 // Beta loop B3: forwarding address, email-driven stage changes, follow-up and thank-you drafts.
 import { beforeAll, describe, expect, it } from "vitest";
-import { classifyEmail, companyFromSender, processInbound } from "../src/email.js";
+import { classifyEmail, companyFromSender, processInbound, titleFromSubject, titleOverlap } from "../src/email.js";
 import { harness, TOKEN_A, TOKEN_B } from "./harness.js";
 
 let h: Awaited<ReturnType<typeof harness>>;
 let address: string;
 let acmeApp: string;
 
+/** Accepts the newest open suggestion (an email proposes; the person decides). */
+const acceptLatest = async () => {
+  const { items } = await h.json(await h.call("GET", "/inbound/suggestions", TOKEN_A));
+  return h.json(await h.call("POST", `/inbound/${items[0].id}/accept`, TOKEN_A));
+};
 const appFor = async (company: string) =>
   ((await h.json(await h.call("GET", "/applications", TOKEN_A))).items as Array<{ id: string; company: string; state: string }>).find((a) => a.company === company)!;
 
@@ -54,16 +59,89 @@ describe("forwarding address", () => {
     expect((await processInbound(h.env.TEST_DB!, { to: "nobody123@in.mycareeragent.app", from: "x@acme.com", subject: "hi", body: "" })).accepted).toBe(false);
   });
 
-  it("moves the application through submitted, screen and rejected, and logs each email", async () => {
+  it("proposes each stage change; nothing moves until accepted", async () => {
     const db = h.env.TEST_DB!;
     let r = await processInbound(db, { to: address, from: "no-reply@greenhouse.io", subject: "Thank you for applying to Acme", body: "" });
-    expect(r).toMatchObject({ accepted: true, kind: "application_confirmation", action: "submitted", applicationId: acmeApp });
+    expect(r).toMatchObject({ accepted: true, kind: "application_confirmation", status: "pending", applicationId: acmeApp });
+    expect((await appFor("Acme")).state).toBe("approved");
+    const s = await h.json(await h.call("GET", "/inbound/suggestions", TOKEN_A));
+    expect(s.items[0]).toMatchObject({ company: "Acme", suggestion: { to: "submitted", from: "approved" } });
+    expect(await acceptLatest()).toMatchObject({ ok: true, applicationId: acmeApp });
+    expect((await appFor("Acme")).state).toBe("submitted");
+
     r = await processInbound(db, { to: address, from: '"Jane at Acme" <jane@acme.com>', subject: "Interview with Acme: next steps", body: "" });
-    expect(r).toMatchObject({ kind: "interview_invite", action: "screen" });
+    expect(r).toMatchObject({ kind: "interview_invite", status: "pending" });
+    await acceptLatest();
     expect((await appFor("Acme")).state).toBe("screen");
     const inbox = await h.json(await h.call("GET", "/inbound", TOKEN_A));
     expect(inbox.recent.map((e: { action: string | null }) => e.action)).toEqual(["screen", "submitted"]);
     expect(inbox.recent[0].company).toBe("Acme");
+    expect(inbox.pending).toEqual([]);
+  });
+
+  it("ignoring a suggestion changes nothing, and a stale one says so", async () => {
+    const db = h.env.TEST_DB!;
+    await processInbound(db, { to: address, from: "talent@acme.com", subject: "Update on your application", body: "Unfortunately we decided to move forward with other candidates for this role." });
+    const { items } = await h.json(await h.call("GET", "/inbound/suggestions", TOKEN_A));
+    expect((await h.call("POST", `/inbound/${items[0].id}/ignore`, TOKEN_A)).status).toBe(200);
+    expect((await appFor("Acme")).state).toBe("screen");
+    expect((await h.call("POST", `/inbound/${items[0].id}/accept`, TOKEN_A)).status).toBe(409);
+  });
+
+  it("matches by the company's own email domain, not just the name", async () => {
+    await h.pg.query("UPDATE mca.company SET domain = 'globex.com' WHERE name = 'Globex'");
+    const globex = await appFor("Globex");
+    await h.pg.query("UPDATE mca.application SET state = 'submitted' WHERE id = $1", [globex.id]);
+    const r = await processInbound(h.env.TEST_DB!, { to: address, from: '"Sam Lee" <sam.lee@careers.globex.com>', subject: "Quick chat about next steps?", body: "" });
+    expect(r).toMatchObject({ status: "pending", applicationId: globex.id });
+    await h.call("POST", `/inbound/${(await h.json(await h.call("GET", "/inbound/suggestions", TOKEN_A))).items[0].id}/ignore`, TOKEN_A);
+  });
+
+  it("drops email that isn't about anything you're tracking, without storing it", async () => {
+    const before = (await h.pg.query<{ n: number }>("SELECT count(*)::int AS n FROM mca.inbound_email")).rows[0]!.n;
+    const r = await processInbound(h.env.TEST_DB!, { to: address, from: "news@techcrunch.com", subject: "5 interview tips for 2027", body: "" });
+    expect(r).toMatchObject({ accepted: true, status: null });
+    expect((await h.pg.query<{ n: number }>("SELECT count(*)::int AS n FROM mca.inbound_email")).rows[0]!.n).toBe(before);
+  });
+
+  it("suggests adding an application made outside the app, and tracks it when accepted", async () => {
+    const nwMail = { to: address, from: '"Northwind Careers" <careers@northwind.io>', subject: "Thank you for applying to the Staff Platform Engineer role at Northwind", body: "" };
+    await processInbound(h.env.TEST_DB!, nwMail); // forwarded twice: one decision closes both
+    const r = await processInbound(h.env.TEST_DB!, nwMail);
+    expect(r).toMatchObject({ kind: "application_confirmation", status: "pending", applicationId: null });
+    const { items } = await h.json(await h.call("GET", "/inbound/suggestions", TOKEN_A));
+    expect(items[0].suggestion).toMatchObject({ company: "Northwind", title: "Staff Platform Engineer" });
+    const ok = await acceptLatest();
+    expect(ok.ok).toBe(true);
+    expect((await h.json(await h.call("GET", "/inbound/suggestions", TOKEN_A))).items).toEqual([]);
+    const nw = await appFor("Northwind");
+    expect(nw).toMatchObject({ state: "submitted" });
+    // A private, never-queued job: nobody's queue picks it up.
+    const { rows } = await h.pg.query<{ status: string; ats_vendor: string }>("SELECT j.status, j.ats_vendor FROM mca.application a JOIN mca.job j ON j.id = a.job_id WHERE a.id = $1", [nw.id]);
+    expect(rows[0]).toEqual({ status: "closed", ats_vendor: "manual" });
+    // A later interview email now matches it.
+    const r2 = await processInbound(h.env.TEST_DB!, { to: address, from: "careers@northwind.io", subject: "Northwind: interview for Staff Platform Engineer", body: "" });
+    expect(r2).toMatchObject({ status: "pending", applicationId: nw.id });
+  });
+
+  it("shows Gmail's forwarding confirmation code and link", async () => {
+    await processInbound(h.env.TEST_DB!, { to: address, from: "Gmail Team <forwarding-noreply@google.com>", subject: "(#123456789) Gmail Forwarding Confirmation - Receive Mail from alice@gmail.com",
+      body: "To allow alice@gmail.com to automatically forward mail to your address, please click the link below to confirm the request:\r\n\r\nhttps://mail-settings.google.com/mail/vf-%5BABC123%5D-xyz\r\n" });
+    const inbox = await h.json(await h.call("GET", "/inbound", TOKEN_A));
+    expect(inbox.forwardingCode).toMatchObject({ code: "123456789", link: "https://mail-settings.google.com/mail/vf-%5BABC123%5D-xyz" });
+    expect(inbox.recent.some((e: { classification: string }) => e.classification === "forwarding_code")).toBe(false);
+  });
+});
+
+describe("matching helpers", () => {
+  it("reads the role from a confirmation subject", () => {
+    expect(titleFromSubject("Thank you for applying to the Staff Platform Engineer role at Northwind")).toBe("Staff Platform Engineer");
+    expect(titleFromSubject("Your application for Senior Data Engineer")).toBe("Senior Data Engineer");
+    expect(titleFromSubject("Thanks for applying!")).toBeNull();
+  });
+  it("prefers the application whose title is in the subject", () => {
+    expect(titleOverlap("Interview: Backend Engineer, Payments", "Backend Engineer, Payments")).toBe(1);
+    expect(titleOverlap("Interview: Backend Engineer, Payments", "Data Scientist")).toBe(0);
   });
 });
 
@@ -89,9 +167,10 @@ describe("follow-ups", () => {
     expect(r.items.find((i: { appId: string }) => i.appId === acmeApp)).toMatchObject({ kind: "thank_you" });
   });
 
-  it("marks a rejection from email", async () => {
+  it("marks a rejection from email once accepted", async () => {
     await processInbound(h.env.TEST_DB!, { to: address, from: "talent@acme.com", subject: "Update on your application",
       body: "Unfortunately we have decided to move forward with other candidates for this role." });
+    await acceptLatest();
     expect((await appFor("Acme")).state).toBe("rejected");
   });
 });

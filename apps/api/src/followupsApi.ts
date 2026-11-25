@@ -1,6 +1,7 @@
 // Beta loop B3: the forwarding address, recent inbound emails, and follow-up and thank-you drafts.
 // Drafts restate only what the employer already received; My Career Agent never sends them.
 
+import { acceptSuggestion } from "./email.js";
 import { detectLanguage, draftFollowup, followupActions, type FollowupApp } from "@my-career-agent/core";
 import { Hono } from "hono";
 import type { AppBindings } from "./env.js";
@@ -24,13 +25,46 @@ followups.get("/inbound", async (c) => {
     const [[row] = []] = await c.get("db").asSystem([stmt(`SELECT mca.inbound_route_ensure($1, $2) AS lp`, uid, candidate())]);
     local = (row?.lp as string | null) ?? null;
   }
-  const [recent = []] = await c.get("db").asUser(uid, [
-    stmt(`SELECT e.received_at, e.from_address, e.subject, e.classification, e.action, co.name AS company
+  const [recent = [], pending = [], [code] = []] = await c.get("db").asUser(uid, [
+    stmt(`SELECT e.received_at, e.from_address, e.subject, e.classification, e.action, e.status, co.name AS company
           FROM mca.inbound_email e LEFT JOIN mca.application a ON a.id = e.application_id
           LEFT JOIN mca.job j ON j.id = a.job_id LEFT JOIN mca.company co ON co.id = j.company_id
+          WHERE e.classification IS DISTINCT FROM 'forwarding_code'
           ORDER BY e.received_at DESC LIMIT 20`),
+    pendingSql(),
+    // Gmail's forwarding confirmation, while it's fresh: Settings shows the code and link.
+    stmt(`SELECT suggestion->>'code' AS code, suggestion->>'link' AS link, received_at FROM mca.inbound_email
+          WHERE classification = 'forwarding_code' AND received_at > now() - interval '2 days' ORDER BY received_at DESC LIMIT 1`),
   ]);
-  return c.json({ address: configured && local ? `${local}@${domain}` : null, configured, recent });
+  return c.json({ address: configured && local ? `${local}@${domain}` : null, configured, recent, pending, forwardingCode: code ?? null });
+});
+
+/** Suggestions from email waiting for a decision, newest first, with what they'd change. */
+function pendingSql() {
+  return stmt(`SELECT e.id, e.received_at, e.from_address, e.subject, e.classification, e.suggestion, e.application_id,
+                      co.id AS company_id, co.name AS company, j.title, a.state
+               FROM mca.inbound_email e LEFT JOIN mca.application a ON a.id = e.application_id
+               LEFT JOIN mca.job j ON j.id = a.job_id LEFT JOIN mca.company co ON co.id = j.company_id
+               WHERE e.status = 'pending' ORDER BY e.received_at DESC LIMIT 30`);
+}
+
+followups.get("/inbound/suggestions", async (c) => {
+  const [rows = []] = await c.get("db").asUser(c.get("userId"), [pendingSql()]);
+  return c.json({ items: rows });
+});
+
+followups.post("/inbound/:id/accept", async (c) => {
+  const id = Number(c.req.param("id"));
+  if (!Number.isSafeInteger(id)) return c.json({ error: "not found" }, 404);
+  const r = await acceptSuggestion(c.get("db"), c.get("userId"), id);
+  return r.ok ? c.json(r) : c.json(r, 409);
+});
+
+followups.post("/inbound/:id/ignore", async (c) => {
+  const id = Number(c.req.param("id"));
+  if (!Number.isSafeInteger(id)) return c.json({ error: "not found" }, 404);
+  const [rows = []] = await c.get("db").asUser(c.get("userId"), [stmt(`UPDATE mca.inbound_email SET status = 'ignored' WHERE id = $1 AND status = 'pending' RETURNING id`, id)]);
+  return rows.length ? c.json({ ok: true }) : c.json({ error: "That suggestion is no longer open." }, 409);
 });
 
 /** What to send today: follow-ups after 10 quiet days (at most two), thank-yous after interviews. */

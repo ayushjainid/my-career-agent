@@ -34,6 +34,9 @@ export function classifyEmail(from: string, subject: string, bodySample = ""): E
 
 /** A likely company name from subjects such as "Thank you for applying to Acme". */
 export function companyFromSubject(subject: string): string | null {
+  // "…the Staff Engineer role at Northwind": the company is what follows the last "at"/"with".
+  const tail = /\b(?:role|position|opening|job|team)\s+(?:at|with)\s+([A-Z0-9][\w&.' -]{1,60}?)\s*[!.]?$/.exec(subject.trim());
+  if (tail?.[1]) return tail[1].trim();
   const m = /(?:applying|application|interest|update|interview)\s+(?:to|at|with|for|from)\s+(?:the\s+)?(.+?)(?:\s*[-–|:!.]|\s+for\s+|$)/i.exec(subject);
   const name = m?.[1]?.trim();
   return name && name.length >= 2 && name.length <= 80 ? name : null;
@@ -58,7 +61,7 @@ const MOVES: Partial<Record<EmailClass, { to: string; from: string[] }>> = {
 };
 
 export interface InboundMessage { to: string; from: string; subject: string; body: string }
-export type InboundResult = { accepted: false } | { accepted: true; kind: EmailClass; action: string | null; applicationId: string | null };
+export type InboundResult = { accepted: false } | { accepted: true; kind: EmailClass | "forwarding_code"; action: string | null; applicationId: string | null; status: string | null };
 
 export async function processInbound(db: TenantDb, m: InboundMessage): Promise<InboundResult> {
   const local = (m.to.split("@")[0] ?? "").toLowerCase();
@@ -67,7 +70,7 @@ export async function processInbound(db: TenantDb, m: InboundMessage): Promise<I
   const userId = route?.user_id as string | undefined;
   if (!userId) return { accepted: false };
   const r = await processForUser(db, userId, { from: m.from, subject: m.subject, body: m.body, source: "forward" });
-  return { accepted: true, ...r };
+  return { accepted: true, kind: r.kind, action: r.action, applicationId: r.applicationId, status: r.status };
 }
 
 const ATS_SENDER = /@(?:[a-z0-9-]+\.)*(?:greenhouse\.io|greenhouse-mail\.io|lever\.co|hire\.lever\.co|ashbyhq\.com|myworkday\.com|myworkdayjobs\.com|smartrecruiters\.com|workablemail\.com|workable\.com|icims\.com|jobvite\.com)>?\s*$/i;
@@ -83,58 +86,140 @@ export function isJobEmail(from: string, subject: string): boolean {
 
 export interface UserMessage { from: string; subject: string; body?: string; source: "forward" | "gmail"; externalId?: string; receivedAt?: Date }
 
-/** Classifies one message for a known user, moves the matching application, and records it. */
-export async function processForUser(db: TenantDb, userId: string, m: UserMessage): Promise<{ kind: EmailClass; action: string | null; applicationId: string | null; duplicate?: boolean }> {
-  if (m.externalId) {
-    const [[seen] = []] = await db.asUser(userId, [stmt(`SELECT 1 AS x FROM mca.inbound_email WHERE external_id = $1`, m.externalId)]);
-    if (seen) return { kind: "other", action: null, applicationId: null, duplicate: true };
-  }
-  const kind = classifyEmail(m.from, m.subject, m.body ?? "");
-  const names = [companyFromSubject(m.subject), companyFromSender(m.from)].filter((x): x is string => !!x).map(normalizeCompanyName).filter(Boolean);
-  const move = MOVES[kind];
-  let applicationId: string | null = null;
-  let action: string | null = null;
-  if (names.length) {
-    // The newest application at that company that this kind of email can move; any reply also
-    // resets the follow-up clock through the event it writes.
-    const [rows = []] = await db.asUser(userId, [
-      stmt(
-        `SELECT a.id, a.state FROM mca.application a JOIN mca.job j ON j.id = a.job_id JOIN mca.company c ON c.id = j.company_id
-         WHERE (c.name_norm = ANY ($1::text[]) OR c.aliases && $1::text[])
-           AND a.state NOT IN ('skipped','withdrawn')
-         ORDER BY (a.state = ANY ($2::text[])) DESC, a.created_at DESC LIMIT 1`,
-        names, move?.from ?? [],
-      ),
-    ]);
-    const app = rows[0];
-    if (app) {
-      applicationId = String(app.id);
-      const canMove = move && move.from.includes(String(app.state));
-      const stmts = [];
-      if (canMove) {
-        action = move.to;
-        stmts.push(stmt(
-          `WITH u AS (UPDATE mca.application SET state = $2, submitted_at = CASE WHEN $2::text = 'submitted' THEN now() ELSE submitted_at END
-                      WHERE id = $1 AND state = $3 RETURNING id)
-           INSERT INTO mca.application_event (user_id, application_id, kind, payload)
-           SELECT $4, u.id, 'state_change', jsonb_build_object('from', $3::text, 'to', $2::text, 'via', 'email', 'subject', $5::text) FROM u`,
-          applicationId, move.to, String(app.state), userId, m.subject.slice(0, 200)));
-      }
-      if (kind !== "application_confirmation" && kind !== "job_alert")
-        stmts.push(stmt(`INSERT INTO mca.application_event (user_id, application_id, kind, payload) VALUES ($1, $2, 'employer_reply', jsonb_build_object('subject', $3::text))`,
-          userId, applicationId, m.subject.slice(0, 200)));
-      if (stmts.length) await db.asUser(userId, stmts);
-    }
-  }
-  await db.asUser(userId, [
-    stmt(`INSERT INTO mca.inbound_email (user_id, from_address, subject, classification, company_norm, application_id, action, source, external_id, received_at)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, coalesce($10::timestamptz, now())) ON CONFLICT DO NOTHING`,
-      userId, m.from.slice(0, 300), m.subject.slice(0, 500), kind, names[0] ?? null, applicationId, action, m.source, m.externalId ?? null,
-      m.receivedAt ? m.receivedAt.toISOString() : null),
-  ]);
-  return { kind, action, applicationId };
+// Gmail's forwarding set-up sends a code to the new address; the person needs to see it.
+const GMAIL_VERIFY_FROM = /forwarding-noreply@google\.com/i;
+const GMAIL_VERIFY_SUBJECT = /\(#(\d{6,12})\)/;
+
+const STOP = new Set(["the", "and", "for", "your", "you", "our", "with", "application", "applying", "role", "position", "job", "thank", "thanks", "update", "regarding", "interview", "next", "steps", "from", "team", "senior", "staff"]);
+const words = (s: string) => new Set(s.toLowerCase().split(/[^a-z0-9+#]+/).filter((w) => w.length >= 3 && !STOP.has(w)));
+/** Share of the job title's distinctive words that appear in the subject (0 to 1). */
+export function titleOverlap(subject: string, title: string): number {
+  const t = words(title);
+  if (!t.size) return 0;
+  const sub = words(subject);
+  let hit = 0;
+  for (const w of t) if (sub.has(w)) hit++;
+  return hit / t.size;
+}
+/** The role named in a confirmation subject: "Thank you for applying to the Staff Engineer role at Northwind". */
+export function titleFromSubject(subject: string): string | null {
+  const m = /(?:application for|applying (?:to|for)|applied (?:to|for)|interest in)\s+(?:the\s+|our\s+)?(.+?)(?:\s+(?:role|position|opening|job))?(?:\s+(?:at|with)\s+.+)?\s*[!.]?$/i.exec(subject.trim());
+  const t = m?.[1]?.replace(/^(?:a|an)\s+/i, "").trim();
+  return t && t.length >= 3 && t.length <= 120 && !/^(?:us|our team|this|it)$/i.test(t) ? t : null;
+}
+function senderDomain(from: string): string | null {
+  const d = /@([a-z0-9.-]+)>?\s*$/i.exec(from)?.[1]?.toLowerCase() ?? null;
+  return d && !ATS_SENDER.test(`@${d}`) ? d : null;
 }
 
+export interface Processed { kind: EmailClass | "forwarding_code"; action: string | null; applicationId: string | null; status: string | null; duplicate?: boolean }
+
+/**
+ * Reads one message for a known user and records what it proposes. Nothing moves by itself:
+ *   - a stage change for a matched application becomes a pending suggestion;
+ *   - a confirmation from a company you aren't tracking suggests adding that application;
+ *   - Gmail's forwarding confirmation is kept so Settings can show its code;
+ *   - a matched reply that changes nothing still resets that application's follow-up clock;
+ *   - anything else is dropped without being stored.
+ * Matching uses what the app knows about your applications (company name and aliases, company
+ * domain, job title), so it works for employers that aren't on any job board.
+ */
+export async function processForUser(db: TenantDb, userId: string, m: UserMessage): Promise<Processed> {
+  if (m.externalId) {
+    const [[seen] = []] = await db.asUser(userId, [stmt(`SELECT 1 AS x FROM mca.inbound_email WHERE external_id = $1`, m.externalId)]);
+    if (seen) return { kind: "other", action: null, applicationId: null, status: null, duplicate: true };
+  }
+  const record = (kind: string, status: string, suggestion: unknown, companyNorm: string | null, applicationId: string | null, action: string | null) =>
+    db.asUser(userId, [
+      stmt(`INSERT INTO mca.inbound_email (user_id, from_address, subject, classification, company_norm, application_id, action, source, external_id, received_at, status, suggestion)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, coalesce($10::timestamptz, now()), $11, $12::jsonb) ON CONFLICT DO NOTHING`,
+        userId, m.from.slice(0, 300), m.subject.slice(0, 500), kind, companyNorm, applicationId, action, m.source, m.externalId ?? null,
+        m.receivedAt ? m.receivedAt.toISOString() : null, status, suggestion === null ? null : JSON.stringify(suggestion)),
+    ]);
+
+  if (GMAIL_VERIFY_FROM.test(m.from) && GMAIL_VERIFY_SUBJECT.test(m.subject)) {
+    const code = GMAIL_VERIFY_SUBJECT.exec(m.subject)![1];
+    const link = /https:\/\/mail(?:-settings)?\.google\.com\/mail\/[^\s"'<>]+/.exec(m.body ?? "")?.[0] ?? null;
+    await record("forwarding_code", "info", { code, link }, null, null, null);
+    return { kind: "forwarding_code", action: null, applicationId: null, status: "info" };
+  }
+
+  const kind = classifyEmail(m.from, m.subject, m.body ?? "");
+  const rawNames = [companyFromSubject(m.subject), companyFromSender(m.from)].filter((x): x is string => !!x);
+  const names = rawNames.map(normalizeCompanyName).filter(Boolean);
+  const domain = senderDomain(m.from);
+  const move = MOVES[kind];
+
+  let app: { id: string; state: string } | null = null;
+  if (names.length || domain) {
+    const [rows = []] = await db.asUser(userId, [
+      stmt(
+        `SELECT a.id, a.state, j.title, a.created_at FROM mca.application a JOIN mca.job j ON j.id = a.job_id JOIN mca.company c ON c.id = j.company_id
+         WHERE a.state NOT IN ('skipped','withdrawn')
+           AND (c.name_norm = ANY ($1::text[]) OR c.aliases && $1::text[]
+                OR ($2::text IS NOT NULL AND c.domain IS NOT NULL AND ($2::text = lower(c.domain) OR $2::text LIKE '%.' || lower(c.domain))))
+         ORDER BY a.created_at DESC LIMIT 25`,
+        names, domain,
+      ),
+    ]);
+    // Several applications at one company: the job title in the subject decides, then whether
+    // this email can move it, then the newest.
+    const ranked = rows
+      .map((r) => ({ id: String(r.id), state: String(r.state), score: titleOverlap(m.subject, String(r.title)) * 2 + (move?.from.includes(String(r.state)) ? 1 : 0) }))
+      .sort((a, b) => b.score - a.score);
+    app = ranked[0] ?? null;
+  }
+
+  if (app) {
+    if (move && move.from.includes(app.state)) {
+      await record(kind, "pending", { to: move.to, from: app.state }, names[0] ?? null, app.id, null);
+      return { kind, action: null, applicationId: app.id, status: "pending" };
+    }
+    // Nothing to move, but a reply still counts as contact for follow-up timing.
+    if (kind !== "application_confirmation" && kind !== "job_alert")
+      await db.asUser(userId, [stmt(`INSERT INTO mca.application_event (user_id, application_id, kind, payload) VALUES ($1, $2, 'employer_reply', jsonb_build_object('subject', $3::text))`,
+        userId, app.id, m.subject.slice(0, 200))]);
+    await record(kind, "info", null, names[0] ?? null, app.id, null);
+    return { kind, action: null, applicationId: app.id, status: "info" };
+  }
+
+  if (kind === "application_confirmation" && rawNames[0]) {
+    await record(kind, "pending", { company: rawNames[0], norm: names[0], title: titleFromSubject(m.subject) }, names[0] ?? null, null, null);
+    return { kind, action: null, applicationId: null, status: "pending" };
+  }
+  // Not about anything you're tracking: dropped, never stored.
+  return { kind, action: null, applicationId: null, status: null };
+}
+
+/** Accepting a suggestion applies it now, if the application is still where it was. */
+export async function acceptSuggestion(db: TenantDb, userId: string, id: number): Promise<{ ok: boolean; applicationId?: string; error?: string }> {
+  const [[row] = []] = await db.asUser(userId, [stmt(`SELECT id, status, suggestion, application_id, subject FROM mca.inbound_email WHERE id = $1`, id)]);
+  if (!row || row.status !== "pending") return { ok: false, error: "That suggestion is no longer open." };
+  const s = (row.suggestion ?? {}) as { to?: string; from?: string; company?: string; norm?: string; title?: string | null };
+  if (s.to && row.application_id) {
+    const [[moved] = []] = await db.asUser(userId, [
+      stmt(`WITH u AS (UPDATE mca.application SET state = $2, submitted_at = CASE WHEN $2::text = 'submitted' THEN coalesce(submitted_at, now()) ELSE submitted_at END
+                       WHERE id = $1 AND state = $3 RETURNING id)
+            INSERT INTO mca.application_event (user_id, application_id, kind, payload)
+            SELECT $4, u.id, 'state_change', jsonb_build_object('from', $3::text, 'to', $2::text, 'via', 'email', 'subject', $5::text) FROM u RETURNING application_id`,
+        row.application_id, s.to, s.from, userId, String(row.subject ?? "").slice(0, 200)),
+    ]);
+    if (!moved) {
+      await db.asUser(userId, [stmt(`UPDATE mca.inbound_email SET status = 'ignored' WHERE id = $1`, id)]);
+      return { ok: false, error: "That application has moved since this email arrived, so nothing changed." };
+    }
+    await db.asUser(userId, [stmt(`UPDATE mca.inbound_email SET status = 'accepted', action = $2 WHERE id = $1`, id, s.to)]);
+    return { ok: true, applicationId: String(row.application_id) };
+  }
+  if (s.company && s.norm) {
+    const [[t] = []] = await db.asUser(userId, [stmt(`SELECT mca.track_external($1, $2, $3) AS id`, s.company, s.norm, s.title ?? null)]);
+    // Close this one and any duplicates for the same company (the same confirmation forwarded twice).
+    await db.asUser(userId, [stmt(`UPDATE mca.inbound_email SET status = 'accepted', action = 'added', application_id = $2
+                                   WHERE id = $1 OR (status = 'pending' AND application_id IS NULL AND suggestion->>'norm' = $3)`, id, t?.id, s.norm)]);
+    return { ok: true, applicationId: String(t?.id) };
+  }
+  return { ok: false, error: "That suggestion can't be applied." };
+}
 async function readSample(raw: ReadableStream<Uint8Array>, limit = 20_000): Promise<string> {
   const reader = raw.getReader();
   const chunks: Uint8Array[] = [];
