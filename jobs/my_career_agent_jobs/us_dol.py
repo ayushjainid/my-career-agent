@@ -175,7 +175,8 @@ def summarise(df: pd.DataFrame, source: str) -> list[Summary]:
             s.period_start = dates.min().date().isoformat()
             s.period_end = dates.max().date().isoformat()
         if "wage_level" in g:
-            levels = Counter(l for l in g["wage_level"].map(_wage_level) if l)
+            # pandas turns a None result into NaN, which is truthy: keep only real levels.
+            levels = Counter(l for l in g["wage_level"].map(_wage_level) if isinstance(l, str))
             s.wage_levels = dict(sorted(levels.items()))
         out.append(s)
     return out

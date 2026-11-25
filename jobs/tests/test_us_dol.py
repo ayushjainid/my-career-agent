@@ -95,3 +95,15 @@ def test_pay_benchmarks_annualise_and_respect_minimums(tmp_path):
     acme = [r for r in out if r["employer_norm"] == "ACME"]
     assert acme == [{"country": "US", "employer_norm": "ACME", "title_family": "software engineer", "n": 3, "p25": 130000,
                      "p50": 140000, "p75": 145000, "currency": "USD", "source_file": "lca.xlsx", "period_end": "2026-06-30"}]
+
+
+def test_lca_summary_skips_missing_wage_levels(tmp_path):
+    """The real FY2026 file has blank wage levels next to filled ones for the same employer."""
+    f = write_xlsx(tmp_path / "lca.xlsx", LCA_HEADER, [
+        ["J-1", "Certified", "2026-01-02", "2026-01-09", "H-1B", "SWE", "15-1252.00", "Mixed Co", None, "II"],
+        ["J-2", "Certified", "2026-01-02", "2026-01-09", "H-1B", "SWE", "15-1252.00", "Mixed Co", None, None],
+        ["J-3", "Certified", "2026-01-02", "2026-01-09", "H-1B", "SWE", "15-1252.00", "Mixed Co", None, float("nan")],
+        ["J-4", "Certified", "2026-01-02", "2026-01-09", "H-1B", "SWE", "15-1252.00", "Mixed Co", None, "Level IV"],
+    ])
+    (s,) = summarise_lca(f)
+    assert s.wage_levels == {"II": 1, "IV": 1}
