@@ -43,6 +43,10 @@ last job, `smoke`, passes.
    their ATS board names, and push. **Seed companies** runs on that push.
 2. Run **US sponsor data** with the current LCA and PERM file URLs from the
    [OFLC performance page](https://www.dol.gov/agencies/eta/foreign-labor/performance).
+   DOL now serves them from `https://www.dol.gov/media/`, e.g.
+   `https://www.dol.gov/media/LCA_Disclosure_Data_FY2026_Q4.xlsx` and
+   `https://www.dol.gov/media/PERM_Disclosure_Data_FY2026_Q4.xlsx` (loaded on 25 Nov 2026). Set them as
+   the `LCA_URL` and `PERM_URL` repository variables so the monthly run keeps them; update them each quarter.
 3. Ingestion runs every 3 hours by itself; the daily queue is built at 06:05 UTC.
 
 ## Rotating credentials
