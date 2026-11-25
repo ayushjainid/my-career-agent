@@ -127,10 +127,26 @@ def summarise_ca(path: Path) -> list[dict[str, object]]:
 MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
 
 
+def _ie_month_header(rows: list[list[str]]) -> tuple[int, dict[str, int]]:
+    for i, row in enumerate(rows[:20]):
+        names = [re.sub(r"\s+", " ", c).strip().lower() for c in row]
+        months = [j for j, n in enumerate(names) if n[:3] in MONTHS and n.isalpha()]
+        if len(months) >= 6:
+            blank = [j for j in range(min(months)) if not names[j]]
+            if blank:
+                return i, {"employer name": blank[-1]}
+    raise LayoutError(f"IE permits list: header not found; expected an employer column or month columns. First row seen: {rows[0] if rows else []}")
+
+
 def summarise_ie(path: Path) -> list[dict[str, object]]:
     """DETE permits issued to companies: total permits per employer for the file's year."""
     rows = _read_rows(path)
-    h, col = _header(rows, [["employer name", "employer", "company name", "company"]], "IE permits list")
+    try:
+        h, col = _header(rows, [["employer name", "employer", "company name", "company"]], "IE permits list")
+    except LayoutError:
+        # DETE's own files leave the employer column unnamed: a header row of month names
+        # (and Grand Total), with employers in the blank-headed column before the months.
+        h, col = _ie_month_header(rows)
     names = [re.sub(r"\s+", " ", c).strip().lower() for c in rows[h]]
     total = next((j for j, n in enumerate(names) if n in ("total", "grand total", "total permits", "permits issued")), None)
     months = [j for j, n in enumerate(names) if n[:3] in MONTHS]

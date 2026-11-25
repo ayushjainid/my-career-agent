@@ -77,3 +77,20 @@ def test_ireland_months_only(tmp_path):
     path = tmp_path / "companies.xlsx"
     wb.save(path)
     assert summarise_ie(path)[0]["filings"] == 5
+
+
+def test_ie_dete_layout_with_unnamed_employer_column(tmp_path):
+    """DETE's real file: first header cell blank, then months and Grand Total."""
+    from openpyxl import Workbook
+    from my_career_agent_jobs.uk_ca_sponsors import summarise_ie
+    wb = Workbook(); ws = wb.active
+    ws.append(["", "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December", "Grand Total"])
+    ws.append(["Intercom R&D Unlimited Company", 2, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3])
+    ws.append(["Stripe Payments Europe Limited", 1, None, None, 4, None, None, None, None, None, None, None, None, 5])
+    ws.append(["Grand Total", 3, 1, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 8])
+    path = tmp_path / "permits-issued-to-companies-2025.xlsx"
+    wb.save(path)
+    rows = {r["employer_name"]: r for r in summarise_ie(path)}
+    assert set(rows) == {"Intercom R&D Unlimited Company", "Stripe Payments Europe Limited"}
+    assert rows["Stripe Payments Europe Limited"]["filings"] == 5
+    assert rows["Intercom R&D Unlimited Company"]["period_end"] == "2025-12-31"
