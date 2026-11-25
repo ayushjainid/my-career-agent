@@ -232,7 +232,7 @@ export async function runQueueForUser(db: TenantDb, userId: string, today: Date,
   const result = buildDailyQueue(input);
   // An empty catalog otherwise reads as "queued 0, left out 0" with no reason given.
   if (!input.jobs.length && !result.note)
-    result.note = "There are no open jobs to choose from yet. Jobs come from the companies in the catalog, which is loaded by the Seed companies workflow and refreshed every 3 hours.";
+    result.note = "There are no open jobs to choose from yet. Jobs come from the job boards of the companies in jobs/companies.csv; add companies there to widen the search.";
   await saveQueue(db, userId, today, result);
   return result;
 }

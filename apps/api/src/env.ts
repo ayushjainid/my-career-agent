@@ -27,6 +27,8 @@ export interface Env {
   FREE_DAILY_LIMIT?: string;
   /** Tests only: an in-process database that replaces Neon. Never set in wrangler.toml. */
   TEST_DB?: TenantDb;
+  /** Tests only: the catalog connection used by ingestion, in place of INGEST_DATABASE_URL. */
+  TEST_INGEST_SQL?: import("./lib/db.js").Sql;
 }
 
 export type AppBindings = { Bindings: Env; Variables: { userId: string; db: TenantDb; authVia: "session" | "token" | "legacy"; sessionHash?: string } };

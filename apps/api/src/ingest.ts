@@ -102,14 +102,32 @@ async function mapLimit<T>(items: T[], limit: number, fn: (t: T) => Promise<void
   await Promise.all(workers);
 }
 
-export async function runIngest(env: Env): Promise<IngestReport> {
-  const sql = appDb(env.INGEST_DATABASE_URL);
-  const batch = Math.max(1, Number(env.INGEST_BOARDS_PER_RUN) || 40);
+export interface IngestOptions {
+  /** Boards to fetch this run (default INGEST_BOARDS_PER_RUN). */
+  limit?: number;
+  /** Only boards not fetched for this many minutes (default 0: the oldest boards, whatever their age). */
+  staleAfterMinutes?: number;
+}
+
+/**
+ * Fetches the boards that were fetched longest ago. Boards are claimed in one statement
+ * (SKIP LOCKED), so the cron and on-demand refreshes running at once never fetch the same board,
+ * and a board whose run dies part-way is not retried until it is stale again.
+ */
+export async function runIngest(env: Env, opts: IngestOptions = {}): Promise<IngestReport & { remaining: number; total: number }> {
+  const sql = env.TEST_INGEST_SQL ?? appDb(env.INGEST_DATABASE_URL);
+  const batch = Math.max(1, opts.limit ?? (Number(env.INGEST_BOARDS_PER_RUN) || 40));
+  const minutes = Math.max(0, opts.staleAfterMinutes ?? 0);
   const companies = (await sql`
-    SELECT id, ats_vendor, ats_board, ats_region FROM mca.company
-    WHERE ats_vendor IN ('greenhouse','lever','ashby') AND ats_board IS NOT NULL
-    ORDER BY last_fetched_at NULLS FIRST
-    LIMIT ${batch}`) as CompanyRow[];
+    UPDATE mca.company SET last_fetched_at = now()
+    WHERE id IN (
+      SELECT id FROM mca.company
+      WHERE ats_vendor IN ('greenhouse','lever','ashby') AND ats_board IS NOT NULL
+        AND (last_fetched_at IS NULL OR last_fetched_at < now() - make_interval(mins => ${minutes}))
+      ORDER BY last_fetched_at NULLS FIRST
+      LIMIT ${batch}
+      FOR UPDATE SKIP LOCKED)
+    RETURNING id, ats_vendor, ats_board, ats_region`) as CompanyRow[];
 
   const report: IngestReport = { boards: companies.length, added: 0, updated: 0, closed: 0, stale: 0, errors: [] };
   await mapLimit(companies, 6, async (c) => {
@@ -120,5 +138,9 @@ export async function runIngest(env: Env): Promise<IngestReport> {
     }
   });
   console.log(JSON.stringify({ event: "ingest", ...report }));
-  return report;
+  const [counts] = (await sql`
+    SELECT count(*)::int AS total,
+           count(*) FILTER (WHERE last_fetched_at IS NULL OR last_fetched_at < now() - make_interval(mins => ${Math.max(minutes, 1)}))::int AS remaining
+    FROM mca.company WHERE ats_vendor IN ('greenhouse','lever','ashby') AND ats_board IS NOT NULL`) as Array<{ total: number; remaining: number }>;
+  return { ...report, total: counts?.total ?? 0, remaining: counts?.remaining ?? 0 };
 }

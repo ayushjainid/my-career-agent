@@ -6,6 +6,7 @@ import { Hono } from "hono";
 import type { AppBindings } from "./env.js";
 import { stmt } from "./lib/tenant.js";
 import { runQueueForUser } from "./queue.js";
+import { runIngest } from "./ingest.js";
 import { payBenchmarks } from "./timingApi.js";
 import { dailyLimit } from "./billing.js";
 
@@ -263,6 +264,17 @@ profile.get("/companies", async (c) => {
 });
 
 // ---------- Daily queue (P3) ----------
+
+/**
+ * Fetch fresh jobs now, one job board per call, instead of waiting for the 3-hourly run. The page
+ * calls it a few at a time until nothing is left. A board fetched in the last hour is skipped, so
+ * repeated clicks never hammer employers' job boards. Catalog only: no personal data involved.
+ */
+export const REFRESH_STALE_MINUTES = 60;
+profile.post("/catalog/refresh", async (c) => {
+  const r = await runIngest(c.env, { limit: 1, staleAfterMinutes: REFRESH_STALE_MINUTES });
+  return c.json({ boards: r.boards, added: r.added, updated: r.updated, failed: r.errors.length, remaining: r.remaining, total: r.total });
+});
 
 /** Build today's queue now (the nightly job runs the same function). Safe to repeat. */
 profile.post("/queue/build", async (c) => {

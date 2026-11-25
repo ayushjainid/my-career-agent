@@ -544,9 +544,27 @@ VIEWS.today = async (notice = null) => {
   // The page redraws after a build, so the result is handed to the new page, not this one.
   if (notice instanceof Node) out.append(notice);
   action(build, out, async () => {
+    // Fetch fresh jobs first: one job board per call, three at a time. Boards fetched in the last
+    // hour are skipped by the server, so this is quick when everything is already fresh.
+    const progress = el("p", { class: "note", role: "status" });
+    clear(out, progress);
+    let total = 0, left = Infinity, failed = 0, strikes = 0;
+    const worker = async () => {
+      while (left > 0 && strikes < 3) {
+        try {
+          const f = await api("POST", "/catalog/refresh");
+          strikes = 0; total = f.total; left = f.boards ? f.remaining : 0; failed += f.failed;
+          if (total) progress.textContent = `Checking job boards for new roles: ${total - left} of ${total}`;
+        } catch (e) { if (e.status === 401) throw e; strikes++; }
+      }
+    };
+    await Promise.all([worker(), worker(), worker()]);
+    progress.textContent = "Building your queue";
     const r = await api("POST", "/queue/build");
     const none = !r.queued && !r.excluded && !r.heldBack;
-    await VIEWS.today(msg(none ? "hold" : "go", none ? (r.note || "No jobs matched yet.") : `Queued ${r.queued}. Left out ${r.excluded}${r.heldBack ? `, held back ${r.heldBack} for your offer window` : ""}.${r.note ? ` ${r.note}` : ""}`));
+    const boards = failed || strikes >= 3
+      ? ` ${strikes >= 3 ? "New jobs couldn't be fetched just now" : `${plural(failed, "job board")} couldn't be reached`}; the next automatic fetch, every 3 hours, will try again.` : "";
+    await VIEWS.today(msg(none ? "hold" : "go", (none ? (r.note || "No jobs matched yet.") : `Queued ${r.queued}. Left out ${r.excluded}${r.heldBack ? `, held back ${r.heldBack} for your offer window` : ""}.${r.note ? ` ${r.note}` : ""}`) + boards));
   });
   const pending = q.items.filter((i) => i.state === "queued").length;
   const head = pageHead("Today",
