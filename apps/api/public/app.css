@@ -406,6 +406,8 @@ input.guess { border-color: var(--hold); background: var(--hold-tint); }
 .review-foot .grow { min-width: 240px; font-size: 14px; }
 
 /* ---------- settings ---------- */
+.reset-list .check { align-items: flex-start; }
+.reset-list .empty-part { color: var(--quiet); cursor: default; }
 .section-nav { position: sticky; top: 80px; display: grid; gap: 2px; }
 .section-nav a { text-decoration: none; color: var(--quiet); font: 600 14px/1.2 var(--display); padding: 9px 10px 7px; border-radius: var(--r-sm); }
 .section-nav a:hover { color: var(--ink); background: #e8eaee; }

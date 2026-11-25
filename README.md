@@ -79,7 +79,9 @@ Rebuild the fixtures with `npm run fixtures -w packages/resume-import`.
   free-text answers (optionally drafted with your own AI key) and status.
 - **Follow-ups**: drafts due now, plus your forwarding address and recent employer emails.
 - **Network**, **Profile** and **Settings**: the answer bank, work authorization, companies,
-  connectors, your AI key, plan and account.
+  connectors, your AI key, plan and account. Account has **Start setup over**: tick what to clear
+  (facts, answers, languages, work authorization, targets, companies, contacts, and optionally
+  applications) and setup starts again; the login and tokens stay.
 
 The visual design follows `apps/api/DESIGN.md` (built with Impeccable), and the UX strategy
 follows `docs/ux/strategy.md` (built with Intent).

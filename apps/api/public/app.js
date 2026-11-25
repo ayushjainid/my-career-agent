@@ -1230,6 +1230,47 @@ function plan(b) {
   return el("div", {}, el("dl", { class: "kv" }, el("dt", {}, "Plan"), el("dd", {}, b.plan === "paid" ? "Paid" : "Free"), el("dt", {}, "Applications per day"), el("dd", {}, String(b.dailyLimit)),
     b.renewsOn ? [el("dt", {}, "Renews"), el("dd", {}, fmtDay(b.renewsOn))] : null), out, el("div", { class: "row", style: { marginTop: "12px" } }, act));
 }
+// What "Start setup over" can clear. Applications are opt-in: they're a record of real submissions.
+const RESET_PARTS = [
+  ["facts_resume", "Facts from your resume", "Roles, achievements, education and skills you imported", true],
+  ["facts_manual", "Facts you added by hand", null, true],
+  ["answers", "Saved answers", "Contact details, visa answers and anything else in your answer bank", true],
+  ["languages", "Languages", null, true],
+  ["work_auth", "Work authorization and home country", "Also clears your offer-window date", true],
+  ["targets", "Target roles", null, true],
+  ["companies", "Company tiers and blocks", null, true],
+  ["contacts", "LinkedIn contacts", "People imported from your LinkedIn export", true],
+  ["applications", "Applications and their history", "Including notes, forwarded employer emails and today's queue", false],
+];
+function startOver() {
+  const out = el("div", { "aria-live": "polite" });
+  const list = el("ul", { class: "list reset-list" }, el("li", {}, loading()));
+  const boxes = [];
+  const go = confirmBtn("Clear and start over", "Confirm: this can't be undone", out, async () => {
+    const picked = boxes.filter((b) => b.cb.checked).map((b) => b.key);
+    if (!picked.length) throw new Error("Tick at least one thing to clear.");
+    await api("POST", "/account/reset", { clear: picked });
+    state.suggestedTitle = null;
+    toast("Cleared. Starting setup again.");
+    await loadMe();
+    location.hash = "#/setup";
+  });
+  api("GET", "/account/reset").then(({ counts }) => {
+    clear(list, RESET_PARTS.map(([key, label, hint, on]) => {
+      const n = counts[key] ?? 0;
+      const cb = input({ type: "checkbox", checked: on && n > 0, disabled: n === 0 });
+      boxes.push({ key, cb });
+      return el("li", {}, el("label", { class: "check grow" + (n === 0 ? " empty-part" : "") }, cb,
+        el("span", {}, el("strong", {}, label), el("span", { class: "note" }, ` · ${key === "work_auth" ? (n ? plural(n, "country", "countries") : "none set") : n === 0 ? "nothing saved" : String(n)}`),
+          hint ? el("span", { class: "note", style: { display: "block" } }, hint) : null)));
+    }));
+  }).catch((e) => clear(list, el("li", {}, msg("stop", e.message))));
+  return el("div", { id: "start-over" },
+    el("h3", { style: { margin: "28px 0 8px" } }, "Start setup over"),
+    el("p", { class: "note measure" }, "Tick what to clear, then go through setup again. Your login, access tokens, AI key and plan stay. Download your data first if you want a copy."),
+    list, el("div", { class: "row", style: { marginTop: "12px" } }, go), out);
+}
+
 function accountSettings() {
   const out = el("div", { "aria-live": "polite" });
   const parts = [];
@@ -1259,6 +1300,7 @@ function accountSettings() {
   parts.push(el("h3", { style: { margin: "28px 0 8px" } }, "Your data"),
     el("p", { class: "note measure" }, "Download everything we hold about you as JSON: profile, facts, answers, contacts, applications and their history."),
     el("div", { class: "row" }, exp),
+    startOver(),
     el("h3", { style: { margin: "28px 0 8px" } }, "Delete account"),
     el("p", { class: "note measure" }, "Deletes your account and all your data at once. This can't be undone. Download your data first if you want a copy."),
     el("div", { class: "grid" }, field("Confirm", confirmBox), state.me.email ? field("Password", pw) : null), el("div", { class: "row", style: { marginTop: "12px" } }, del),
