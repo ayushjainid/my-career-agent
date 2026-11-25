@@ -1,7 +1,7 @@
 // Scheduled ingestion: fetch a batch of company boards, diff against the catalog, write changes.
 // Runs as the mca_ingest role (catalog only; no tenant data).
 
-import { compactIntegrity, extractRequirements, type AtsVendor, type NormalizedJob, inferCountry } from "@my-career-agent/core";
+import { compactIntegrity, extractRequirements, postingSignals, type AtsVendor, type NormalizedJob, inferCountry } from "@my-career-agent/core";
 import { diffBoard, type StoredJobKey } from "./ats/diff.js";
 import { fetchBoard } from "./ats/adapters.js";
 import type { Env } from "./env.js";
@@ -40,7 +40,9 @@ export function toRecord(job: NormalizedJob) {
     posted_at: job.postedAt,
     apply_url: job.applyUrl,
     description_text: job.descriptionText.slice(0, 50_000),
-    requirements: { mustHave: req.mustHave, niceToHave: req.niceToHave, minYears: req.minYears, seniority: req.seniority, sponsorshipSignal: req.sponsorshipSignal, postingLanguage: req.postingLanguage, extractor: "det-1" },
+    requirements: { mustHave: req.mustHave, niceToHave: req.niceToHave, minYears: req.minYears, seniority: req.seniority, sponsorshipSignal: req.sponsorshipSignal, postingLanguage: req.postingLanguage,
+      // Read once here so ranking never has to load or scan the posting text.
+      signals: postingSignals(job.descriptionText), extractor: "det-2" },
     sponsorship_text_signal: req.sponsorshipSignal,
     integrity: job.integrity ? compactIntegrity(job.integrity) : null,
   };

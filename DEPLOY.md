@@ -47,7 +47,24 @@ last job, `smoke`, passes.
    `https://www.dol.gov/media/LCA_Disclosure_Data_FY2026_Q4.xlsx` and
    `https://www.dol.gov/media/PERM_Disclosure_Data_FY2026_Q4.xlsx` (loaded on 25 Nov 2026). Set them as
    the `LCA_URL` and `PERM_URL` repository variables so the monthly run keeps them; update them each quarter.
-3. Ingestion runs every 3 hours by itself; the daily queue is built at 06:05 UTC.
+3. Job fetching and queue building run on GitHub Actions (**Fetch jobs and build queues**,
+   `.github/workflows/jobs.yml`): every 3 hours it fetches every company's job board, and at 06:05 UTC
+   it also builds everyone's queue. They don't run on the Worker because the Workers free plan allows
+   10 ms of CPU per request and one large job board takes about 850 ms.
+
+### "Build today's queue" on demand
+
+The Today page's button starts that GitHub job for the person who clicked it (fetch boards not
+fetched in the last hour, then build their queue), and the page shows the new queue 1 to 3 minutes
+later. It needs a token that may start workflows:
+
+1. GitHub → Settings → Developer settings → Fine-grained personal access tokens → Generate new token.
+   Repository access: only `ayushjainid/my-career-agent`. Permissions: **Actions: Read and write**
+   (nothing else). Pick an expiry and note it.
+2. Add it as the repository secret `GH_DISPATCH_TOKEN` (Settings → Secrets and variables → Actions).
+3. Run **Deploy** (or push). The deploy copies it to the Worker as `GITHUB_DISPATCH_TOKEN`.
+
+Until then the button ranks what is already in the catalog, and new jobs arrive every 3 hours.
 
 ## Rotating credentials
 

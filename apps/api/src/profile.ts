@@ -6,7 +6,6 @@ import { Hono } from "hono";
 import type { AppBindings } from "./env.js";
 import { stmt } from "./lib/tenant.js";
 import { runQueueForUser } from "./queue.js";
-import { runIngest } from "./ingest.js";
 import { payBenchmarks } from "./timingApi.js";
 import { dailyLimit } from "./billing.js";
 
@@ -266,14 +265,56 @@ profile.get("/companies", async (c) => {
 // ---------- Daily queue (P3) ----------
 
 /**
- * Fetch fresh jobs now, one job board per call, instead of waiting for the 3-hourly run. The page
- * calls it a few at a time until nothing is left. A board fetched in the last hour is skipped, so
- * repeated clicks never hammer employers' job boards. Catalog only: no personal data involved.
+ * Fetch new jobs and rebuild this user's queue now. The work runs as a GitHub Actions job
+ * (jobs.yml): the Workers free plan allows 10 ms of CPU, and fetching one large job board takes
+ * ~850 ms. Asking again within REFRESH_COOLDOWN_SECONDS joins the run already on its way.
  */
-export const REFRESH_STALE_MINUTES = 60;
-profile.post("/catalog/refresh", async (c) => {
-  const r = await runIngest(c.env, { limit: 1, staleAfterMinutes: REFRESH_STALE_MINUTES });
-  return c.json({ boards: r.boards, added: r.added, updated: r.updated, failed: r.errors.length, remaining: r.remaining, total: r.total });
+export const REFRESH_COOLDOWN_SECONDS = 180;
+profile.post("/queue/refresh", async (c) => {
+  const uid = c.get("userId");
+  const db = c.get("db");
+  const [[u] = []] = await db.asUser(uid, [
+    stmt(`SELECT queue_requested_at, now() - queue_requested_at < make_interval(secs => $1) AS recent FROM mca.app_user`, REFRESH_COOLDOWN_SECONDS),
+  ]);
+  if (!u) return c.json({ error: "add a profile and at least one target first" }, 409);
+  if (u.recent) return c.json({ started: false, requestedAt: u.queue_requested_at });
+  if (!c.env.GITHUB_DISPATCH_TOKEN || !c.env.GITHUB_REPO)
+    return c.json({ error: "Fetching on demand isn't set up yet: add the GH_DISPATCH_TOKEN secret (see DEPLOY.md). New jobs still arrive every 3 hours." }, 503);
+  const r = await fetch(`https://api.github.com/repos/${c.env.GITHUB_REPO}/actions/workflows/jobs.yml/dispatches`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${c.env.GITHUB_DISPATCH_TOKEN}`,
+      accept: "application/vnd.github+json",
+      "x-github-api-version": "2022-11-28",
+      "user-agent": "my-career-agent",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ ref: "main", inputs: { user_id: uid } }),
+  });
+  if (r.status !== 204) {
+    console.error(JSON.stringify({ event: "dispatch_failed", status: r.status }));
+    return c.json({ error: `GitHub didn't start the job (HTTP ${r.status}). Check the GH_DISPATCH_TOKEN secret.` }, 502);
+  }
+  const [[row] = []] = await db.asUser(uid, [stmt(`UPDATE mca.app_user SET queue_requested_at = now() RETURNING queue_requested_at`)]);
+  return c.json({ started: true, requestedAt: row?.queue_requested_at });
+});
+
+/** Progress for the page: when the user asked, and the latest queue run. */
+profile.get("/queue/refresh", async (c) => {
+  // Compared in SQL: timestamps keep their microseconds there.
+  const [[u] = [], [run] = []] = await c.get("db").asUser(c.get("userId"), [
+    stmt(`SELECT queue_requested_at FROM mca.app_user`),
+    stmt(`SELECT r.created_at, r.queued, jsonb_array_length(r.held_back) AS held_back, jsonb_array_length(r.excluded) AS excluded, r.note,
+                 (u.queue_requested_at IS NULL OR r.created_at >= u.queue_requested_at) AS fresh
+          FROM mca.queue_run r CROSS JOIN mca.app_user u ORDER BY r.created_at DESC LIMIT 1`),
+  ]);
+  const requestedAt = (u?.queue_requested_at as string | Date | null) ?? null;
+  const done = !!run && run.fresh === true;
+  return c.json({
+    requestedAt,
+    done,
+    run: run ? { at: run.created_at, queued: run.queued, heldBack: run.held_back, excluded: run.excluded, note: run.note } : null,
+  });
 });
 
 /** Build today's queue now (the nightly job runs the same function). Safe to repeat. */

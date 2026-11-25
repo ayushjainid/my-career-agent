@@ -18,6 +18,8 @@ import {
   type WorkAuthStatus,
 } from "@my-career-agent/core";
 import { stmt, type Row, type TenantDb } from "./lib/tenant.js";
+import type { Env } from "./env.js";
+import { dailyLimit } from "./billing.js";
 import { loadTimingApps } from "./timingApi.js";
 
 const iso = (v: unknown): string | null => {
@@ -45,7 +47,8 @@ export async function loadQueueInput(db: TenantDb, userId: string, today: Date):
           FROM mca.contact WHERE company_id IS NOT NULL`),
     stmt(`SELECT a.job_id, a.state, a.created_at, a.planned_date::text AS planned_date, j.company_id FROM mca.application a JOIN mca.job j ON j.id = a.job_id`),
     stmt(
-      `SELECT j.id, j.company_id, j.title, j.country, j.description_text, j.requirements, j.sponsorship_text_signal, j.posted_at, j.status,
+      `SELECT j.id, j.company_id, j.title, j.country,
+              CASE WHEN j.requirements ? 'signals' THEN NULL ELSE j.description_text END AS description_text, j.requirements, j.sponsorship_text_signal, j.posted_at, j.status,
               j.pay_max, j.pay_currency, j.integrity->>'level' AS integrity_level,
               s.filings, s.perm_certified, s.perm_denied, s.last_filing, s.rating
        FROM mca.job j
@@ -140,6 +143,7 @@ export async function loadQueueInput(db: TenantDb, userId: string, today: Date):
       title: String(j.title),
       country: (j.country as string | null) ?? "US",
       descriptionText: String(j.description_text ?? ""),
+      signals: stored?.signals ?? null,
       requirements,
       postedAt: iso(j.posted_at),
       status: j.status as QueueJob["status"],
@@ -235,4 +239,19 @@ export async function runQueueForUser(db: TenantDb, userId: string, today: Date,
     result.note = "There are no open jobs to choose from yet. Jobs come from the job boards of the companies in jobs/companies.csv; add companies there to widen the search.";
   await saveQueue(db, userId, today, result);
   return result;
+}
+
+/** Builds today's queue for everyone with a target role (the daily GitHub job). */
+export async function runAllQueues(env: Env, db: TenantDb, users: string[]): Promise<Array<{ user: string; queued: number; excluded: number; error?: string }>> {
+  const today = new Date();
+  const out = [];
+  for (const user of users) {
+    try {
+      const r = await runQueueForUser(db, user, today, await dailyLimit(env, db, user));
+      out.push({ user, queued: r?.queue.length ?? 0, excluded: r?.excluded.length ?? 0 });
+    } catch (err) {
+      out.push({ user, queued: 0, excluded: 0, error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+  return out;
 }

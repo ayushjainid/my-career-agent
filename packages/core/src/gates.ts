@@ -117,11 +117,32 @@ export function extractLanguageRequirements(text: string): LanguageRequirement[]
   return [...out.values()];
 }
 
-export function languageGate(postingText: string, declared: DeclaredLanguage[]): GateResult {
+/** Language and eligibility wording read once from a posting (at fetch time), the same for every user. */
+export interface PostingSignals {
+  languages: LanguageRequirement[];
+  citizenOnly: string | null;
+  prOrCitizen: string | null;
+  clearance: string | null;
+  protectedCategory: string | null;
+}
+
+/** Reads the posting's text once; ranking then only compares these against each user. */
+export function postingSignals(text: string): PostingSignals {
+  const q = (re: RegExp) => (re.test(text) ? quoteLine(text, re) : null);
+  return {
+    languages: extractLanguageRequirements(text),
+    citizenOnly: q(CITIZEN_ONLY),
+    prOrCitizen: q(PR_OR_CITIZEN),
+    clearance: q(CLEARANCE),
+    protectedCategory: q(PROTECTED_CATEGORY),
+  };
+}
+
+export function languageGate(posting: string | LanguageRequirement[], declared: DeclaredLanguage[]): GateResult {
   const mine = new Map(declared.map((d) => [canonLang(d.language), LANGUAGE_LEVELS[d.level]]));
   const notes: string[] = [];
   let verdict: GateVerdict = "PASS";
-  for (const req of extractLanguageRequirements(postingText)) {
+  for (const req of typeof posting === "string" ? extractLanguageRequirements(posting) : posting) {
     if (req.optional) continue;
     const have = mine.get(req.language);
     if (have === undefined) {
@@ -164,35 +185,36 @@ function quoteLine(text: string, re: RegExp): string {
  * country. Clearance is FAIL for non-citizens (it requires citizenship almost everywhere) and FLAG
  * for citizens (they may not hold one). An unknown status yields FLAG, never a silent PASS.
  */
-export function eligibilityGate(postingText: string, status: WorkAuthStatus | null): GateResult {
+export function eligibilityGate(posting: string | PostingSignals, status: WorkAuthStatus | null): GateResult {
+  const s = typeof posting === "string" ? postingSignals(posting) : posting;
   const notes: string[] = [];
   let verdict: GateVerdict = "PASS";
   const bump = (v: GateVerdict) => {
     if (v === "FAIL" || (v === "FLAG" && verdict === "PASS")) verdict = v;
   };
-  if (CITIZEN_ONLY.test(postingText)) {
-    const q = quoteLine(postingText, CITIZEN_ONLY);
+  if (s.citizenOnly !== null) {
+    const q = s.citizenOnly;
     if (status === "citizen") notes.push(`Citizens only (you qualify): "${q}"`);
     else {
       bump(status === null ? "FLAG" : "FAIL");
       notes.push(`Citizens only: "${q}"`);
     }
   }
-  if (PR_OR_CITIZEN.test(postingText)) {
-    const q = quoteLine(postingText, PR_OR_CITIZEN);
+  if (s.prOrCitizen !== null) {
+    const q = s.prOrCitizen;
     if (status !== "citizen" && status !== "permanent_resident") {
       bump(status === null ? "FLAG" : "FAIL");
       notes.push(`Requires citizenship or permanent residency: "${q}"`);
     }
   }
-  if (CLEARANCE.test(postingText)) {
-    const q = quoteLine(postingText, CLEARANCE);
+  if (s.clearance !== null) {
+    const q = s.clearance;
     bump(status === "citizen" ? "FLAG" : status === null ? "FLAG" : "FAIL");
     notes.push(`Security clearance: "${q}"`);
   }
-  if (PROTECTED_CATEGORY.test(postingText)) {
+  if (s.protectedCategory !== null) {
     bump("FLAG");
-    notes.push(`Reserved for candidates registered under Italian Law 68/1999 (categorie protette): "${quoteLine(postingText, PROTECTED_CATEGORY)}"`);
+    notes.push(`Reserved for candidates registered under Italian Law 68/1999 (categorie protette): "${s.protectedCategory}"`);
   }
   return { gate: "eligibility", verdict, notes };
 }

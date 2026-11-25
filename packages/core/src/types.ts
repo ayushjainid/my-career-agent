@@ -37,6 +37,8 @@ export interface JobRequirements {
   sponsorshipSignal: "positive" | "negative" | "none";
   /** The language the posting is written in; Italian postings get Italian applications. Absent on older rows. */
   postingLanguage?: "en" | "it" | "other";
+  /** Language and eligibility wording, read at fetch time. Absent on older rows. */
+  signals?: import("./gates.js").PostingSignals;
 }
 
 /** A verified entry from the user's fact bank. */

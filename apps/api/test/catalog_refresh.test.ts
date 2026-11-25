@@ -1,8 +1,10 @@
-// On-demand job fetch from the Today page: one board per call, never the same board twice in an hour,
-// run as the catalog-only ingest role, then the queue builds from what came in.
+// Job fetching (run by the GitHub job) under the catalog-only ingest role, and the Today page's
+// "Build today's queue", which starts that job and then watches for the new queue.
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { PGlite } from "@electric-sql/pglite";
 import type { Sql } from "../src/lib/db.js";
+import { runIngest } from "../src/ingest.js";
+import { runAllQueues } from "../src/queue.js";
 import { harness, TOKEN_A } from "./harness.js";
 
 let h: Awaited<ReturnType<typeof harness>>;
@@ -58,51 +60,97 @@ const stubBoards = () => {
   });
 };
 
-describe("Fetch jobs now", () => {
+const fetchNow = (limit = 1, staleAfterMinutes = 60) => runIngest(h.env, { limit, staleAfterMinutes });
+
+describe("Fetching job boards", () => {
   it("starts with nothing to queue", async () => {
     const r = await h.json(await h.call("POST", "/queue/build", TOKEN_A));
     expect(r.queued).toBe(0);
     expect(r.note).toMatch(/no open jobs/);
   });
 
-  it("fetches one board per call until none are left, then the queue builds", async () => {
+  it("claims boards oldest first until none are stale, stores posting signals, and queues build from them", async () => {
     stubBoards();
-    const calls = [];
-    for (let i = 0; i < 4; i++) calls.push(await h.json(await h.call("POST", "/catalog/refresh", TOKEN_A)));
-    expect(calls.map((c) => c.boards)).toEqual([1, 1, 1, 0]);
-    expect(calls.map((c) => c.remaining)).toEqual([2, 1, 0, 0]);
-    expect(calls[0]).toMatchObject({ total: 3, added: 1, failed: 0 });
+    const runs = [];
+    for (let i = 0; i < 4; i++) runs.push(await fetchNow());
+    expect(runs.map((c) => c.boards)).toEqual([1, 1, 1, 0]);
+    expect(runs.map((c) => c.remaining)).toEqual([2, 1, 0, 0]);
+    expect(runs[0]).toMatchObject({ total: 3, added: 1 });
     expect(fetched.sort()).toEqual(["alpha", "bravo", "charlie"]);
+    const { rows } = await h.pg.query<{ r: { signals?: unknown } }>("SELECT requirements AS r FROM mca.job LIMIT 1");
+    expect(rows[0]!.r.signals).toMatchObject({ languages: [], citizenOnly: null });
 
-    const r = await h.json(await h.call("POST", "/queue/build", TOKEN_A));
-    expect(r.queued).toBe(3);
+    const [res] = await runAllQueues(h.env, h.env.TEST_DB!, ["alice"]);
+    expect(res).toMatchObject({ user: "alice", queued: 3 });
   });
 
   it("does not fetch a board again within the hour", async () => {
     stubBoards();
-    const r = await h.json(await h.call("POST", "/catalog/refresh", TOKEN_A));
-    expect(r).toMatchObject({ boards: 0, remaining: 0 });
+    expect(await fetchNow()).toMatchObject({ boards: 0, remaining: 0 });
     expect(fetched).toEqual([]);
   });
 
-  it("parallel calls never fetch the same board twice", async () => {
-    await h.pg.query("UPDATE mca.company SET last_fetched_at = now() - interval '2 hours'");
+  it("the scheduled run (stale 0) fetches every board in one pass", async () => {
     stubBoards();
-    await Promise.all([1, 2, 3].map(() => h.call("POST", "/catalog/refresh", TOKEN_A)));
+    expect(await fetchNow(1000, 0)).toMatchObject({ boards: 3 });
     expect(fetched.sort()).toEqual(["alpha", "bravo", "charlie"]);
   });
 
-  it("a failing board is reported, skipped for the hour, and the rest carry on", async () => {
+  it("a failing board is reported and the rest carry on", async () => {
     await h.pg.query("UPDATE mca.company SET last_fetched_at = now() - interval '2 hours'");
     vi.stubGlobal("fetch", async (url: string) =>
       url.includes("/alpha/") ? new Response("down", { status: 500 }) : new Response(JSON.stringify(board("x")), { status: 200 }));
-    const rs = [];
-    for (let i = 0; i < 4; i++) rs.push(await h.json(await h.call("POST", "/catalog/refresh", TOKEN_A)));
-    expect(rs.reduce((n, r) => n + r.failed, 0)).toBe(1);
-    expect(rs.at(-1)).toMatchObject({ boards: 0, remaining: 0 });
+    const r = await fetchNow(1000, 60);
+    expect(r.boards).toBe(3);
+    expect(r.errors).toHaveLength(1);
+  });
+});
+
+describe("Build today's queue (starts the GitHub job)", () => {
+  it("says plainly when on-demand fetching isn't set up", async () => {
+    const r = await h.call("POST", "/queue/refresh", TOKEN_A);
+    expect(r.status).toBe(503);
+    expect((await h.json(r)).error).toMatch(/GH_DISPATCH_TOKEN/);
+  });
+
+  it("starts jobs.yml for this user, then joins that run instead of starting another", async () => {
+    h.env.GITHUB_DISPATCH_TOKEN = "github_pat_test";
+    h.env.GITHUB_REPO = "owner/repo";
+    let sent: { url: string; auth: string; body: { ref: string; inputs: { user_id: string } } } | null = null;
+    vi.stubGlobal("fetch", async (url: string, init: { headers: Record<string, string>; body: string }) => {
+      sent = { url, auth: init.headers.authorization!, body: JSON.parse(init.body) };
+      return new Response(null, { status: 204 });
+    });
+    const r = await h.json(await h.call("POST", "/queue/refresh", TOKEN_A));
+    expect(r.started).toBe(true);
+    expect(sent!.url).toBe("https://api.github.com/repos/owner/repo/actions/workflows/jobs.yml/dispatches");
+    expect(sent!.auth).toBe("Bearer github_pat_test");
+    expect(sent!.body).toEqual({ ref: "main", inputs: { user_id: "alice" } });
+
+    sent = null;
+    const again = await h.json(await h.call("POST", "/queue/refresh", TOKEN_A));
+    expect(again.started).toBe(false);
+    expect(sent).toBeNull();
+  });
+
+  it("reports progress: not done until a queue run newer than the request exists", async () => {
+    const before = await h.json(await h.call("GET", "/queue/refresh", TOKEN_A));
+    expect(before.done).toBe(false);
+    await runAllQueues(h.env, h.env.TEST_DB!, ["alice"]);
+    const after = await h.json(await h.call("GET", "/queue/refresh", TOKEN_A));
+    expect(after.done).toBe(true);
+    expect(after.run).toMatchObject({ queued: expect.any(Number), excluded: expect.any(Number) });
+  });
+
+  it("explains a GitHub refusal", async () => {
+    await h.pg.query("UPDATE mca.app_user SET queue_requested_at = now() - interval '1 hour'");
+    vi.stubGlobal("fetch", async () => new Response("{}", { status: 401 }));
+    const r = await h.call("POST", "/queue/refresh", TOKEN_A);
+    expect(r.status).toBe(502);
+    expect((await h.json(r)).error).toMatch(/HTTP 401/);
   });
 
   it("needs a signed-in user", async () => {
-    expect((await h.call("POST", "/catalog/refresh", null)).status).toBe(401);
+    expect((await h.call("POST", "/queue/refresh", null)).status).toBe(401);
   });
 });

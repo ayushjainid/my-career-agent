@@ -25,6 +25,10 @@ export interface Env {
   STRIPE_WEBHOOK_SECRET?: string;
   /** Applications per day without a paid plan, once billing is on. */
   FREE_DAILY_LIMIT?: string;
+  /** Starts the GitHub job that fetches jobs and builds queues (fine-grained token, Actions: write). */
+  GITHUB_DISPATCH_TOKEN?: string;
+  /** "owner/repo" holding .github/workflows/jobs.yml. */
+  GITHUB_REPO?: string;
   /** Tests only: an in-process database that replaces Neon. Never set in wrangler.toml. */
   TEST_DB?: TenantDb;
   /** Tests only: the catalog connection used by ingestion, in place of INGEST_DATABASE_URL. */

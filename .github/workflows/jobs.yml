@@ -1,0 +1,47 @@
+name: Fetch jobs and build queues
+
+# Job fetching and queue building run here rather than on the Worker: the Workers free plan allows
+# 10 ms of CPU per request, and processing one large job board takes ~850 ms.
+#   - every 3 hours: fetch every company's job board
+#   - daily at 06:05 UTC: fetch, then build everyone's queue
+#   - on demand: the Today page's "Build today's queue" starts this for one user
+on:
+  schedule:
+    - cron: "17 */3 * * *"
+    - cron: "5 6 * * *"
+  workflow_dispatch:
+    inputs:
+      user_id:
+        description: "Build this user's queue after fetching (blank: fetch only)"
+        required: false
+
+# One run at a time; on-demand runs queue behind a running fetch instead of fetching twice.
+concurrency:
+  group: jobs
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npx esbuild scripts/jobs-runner.mts --bundle --platform=node --format=esm --target=node22 --outfile=dist/jobs-runner.mjs --log-level=warning
+      - name: Derive the connection strings
+        run: node scripts/db-urls.mjs
+        env:
+          DATABASE_OWNER_URL: ${{ secrets.DATABASE_OWNER_URL }}
+      - name: Fetch job boards
+        # On demand, skip boards fetched in the last hour so repeated clicks stay quick.
+        run: node dist/jobs-runner.mjs fetch --stale-minutes ${{ github.event_name == 'workflow_dispatch' && '60' || '0' }}
+      - name: Build queues
+        if: github.event.schedule == '5 6 * * *' || inputs.user_id != ''
+        run: |
+          if [ -n "$USER_ID" ]; then node dist/jobs-runner.mjs queues --user "$USER_ID"; else node dist/jobs-runner.mjs queues; fi
+        env:
+          USER_ID: ${{ inputs.user_id }}

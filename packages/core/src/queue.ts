@@ -2,7 +2,7 @@
 // (posting integrity, language and eligibility gates, blacklist, sponsorship, ranking, timing)
 // so it can be validated on fixtures alone before it is wired to the database.
 
-import { combineGates, eligibilityGate, languageGate, type DeclaredLanguage, type GateResult, type WorkAuthStatus } from "./gates.js";
+import { combineGates, eligibilityGate, languageGate, type DeclaredLanguage, type GateResult, type PostingSignals, type WorkAuthStatus } from "./gates.js";
 import { planToday } from "./planner.js";
 import { rankCandidates, type CompanyPreference, type Excluded } from "./ranking.js";
 import { scoreResume } from "./scoring.js";
@@ -16,6 +16,8 @@ export interface QueueJob {
   title: string;
   country: string | null;
   descriptionText: string;
+  /** Read at fetch time; when present the description text is not needed for ranking. */
+  signals?: PostingSignals | null;
   requirements: JobRequirements;
   postedAt: string | null;
   status: "open" | "closed" | "stale";
@@ -116,7 +118,10 @@ export function buildDailyQueue(input: QueueInput): QueueResult {
       continue;
     }
     const auth = country ? input.workAuth[country] : undefined;
-    const gates = [languageGate(j.descriptionText, input.languages), eligibilityGate(j.descriptionText, auth?.status ?? null)];
+    const gates = [
+      languageGate(j.signals ? j.signals.languages : j.descriptionText, input.languages),
+      eligibilityGate(j.signals ?? j.descriptionText, auth?.status ?? null),
+    ];
     const verdict = combineGates(gates);
     if (verdict === "FAIL") {
       excluded.push({ jobId: j.jobId, reason: gates.flatMap((g) => (g.verdict === "FAIL" ? g.notes : [])).join(" ") || "Failed a gate" });

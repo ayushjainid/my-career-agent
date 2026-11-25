@@ -541,31 +541,48 @@ VIEWS.today = async (notice = null) => {
   const out = el("div", { "aria-live": "polite" });
   const list = el("ul", { class: "queue", "aria-label": "Today's queue" });
   const build = btn(q.items.length ? "Rebuild queue" : "Build today's queue", { kind: q.items.length ? "" : "primary" });
-  // The page redraws after a build, so the result is handed to the new page, not this one.
-  if (notice instanceof Node) out.append(notice);
-  action(build, out, async () => {
-    // Fetch fresh jobs first: one job board per call, three at a time. Boards fetched in the last
-    // hour are skipped by the server, so this is quick when everything is already fresh.
-    const progress = el("p", { class: "note", role: "status" });
-    clear(out, progress);
-    let total = 0, left = Infinity, failed = 0, strikes = 0;
-    const worker = async () => {
-      while (left > 0 && strikes < 3) {
-        try {
-          const f = await api("POST", "/catalog/refresh");
-          strikes = 0; total = f.total; left = f.boards ? f.remaining : 0; failed += f.failed;
-          if (total) progress.textContent = `Checking job boards for new roles: ${total - left} of ${total}`;
-        } catch (e) { if (e.status === 401) throw e; strikes++; }
-      }
-    };
-    await Promise.all([worker(), worker(), worker()]);
-    progress.textContent = "Building your queue";
-    const r = await api("POST", "/queue/build");
+  const summary = (r) => {
     const none = !r.queued && !r.excluded && !r.heldBack;
-    const boards = failed || strikes >= 3
-      ? ` ${strikes >= 3 ? "New jobs couldn't be fetched just now" : `${plural(failed, "job board")} couldn't be reached`}; the next automatic fetch, every 3 hours, will try again.` : "";
-    await VIEWS.today(msg(none ? "hold" : "go", (none ? (r.note || "No jobs matched yet.") : `Queued ${r.queued}. Left out ${r.excluded}${r.heldBack ? `, held back ${r.heldBack} for your offer window` : ""}.${r.note ? ` ${r.note}` : ""}`) + boards));
+    return msg(none ? "hold" : "go", none ? (r.note || "No jobs matched yet.")
+      : `Queued ${r.queued}. Left out ${r.excluded}${r.heldBack ? `, held back ${r.heldBack} for your offer window` : ""}.${r.note ? ` ${r.note}` : ""}`);
+  };
+  // Fetching and ranking run as a GitHub job (the Worker's free plan is too small for them), so the
+  // page starts it and watches for the new queue. It keeps watching if you leave and come back.
+  const watch = async (since) => {
+    const status = el("p", { class: "note", role: "status" }, "Fetching new jobs and ranking them. This usually takes 1 to 3 minutes; you can leave this page.");
+    clear(out, msg("info", status));
+    build.setAttribute("aria-busy", "true");
+    const until = Date.now() + 8 * 60_000;
+    try {
+      while (Date.now() < until) {
+        await new Promise((ok) => setTimeout(ok, 8000));
+        if (!location.hash.startsWith("#/today") || !document.body.contains(out)) return;
+        const p = await api("GET", "/queue/refresh");
+        if (p.done && p.run) { await VIEWS.today(summary(p.run)); return; }
+      }
+      clear(out, msg("hold", "This is taking longer than usual. Your queue will appear here when it's ready; check back in a few minutes."));
+    } catch (e) { clear(out, msg("stop", e.message)); }
+    finally { build.removeAttribute("aria-busy"); }
+  };
+  build.addEventListener("click", async (e) => {
+    e.preventDefault();
+    if (build.getAttribute("aria-busy") === "true") return;
+    build.setAttribute("aria-busy", "true");
+    try {
+      const r = await api("POST", "/queue/refresh");
+      build.removeAttribute("aria-busy");
+      watch(r.requestedAt);
+    } catch (err) {
+      build.removeAttribute("aria-busy");
+      if (err.status === 503) {
+        // On-demand fetching isn't set up: rank what's already in the catalog.
+        try { const r = await api("POST", "/queue/build"); await VIEWS.today(summary(r)); }
+        catch (e2) { clear(out, msg("stop", e2.message)); }
+      } else if (err.status !== 401) clear(out, msg("stop", err.message));
+    }
   });
+  if (notice instanceof Node) out.append(notice);
+  else api("GET", "/queue/refresh").then((p) => { if (p.requestedAt && !p.done && Date.now() - new Date(p.requestedAt) < 8 * 60_000) watch(p.requestedAt); }).catch(() => {});
   const pending = q.items.filter((i) => i.state === "queued").length;
   const head = pageHead("Today",
     q.items.length ? `${plural(pending, "role")} to review. Approve what you'll apply to, ask for a referral first where you can, then open the packet.` : null,
