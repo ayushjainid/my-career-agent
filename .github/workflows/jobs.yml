@@ -18,6 +18,10 @@ on:
         description: "Skip boards fetched within this many minutes (0: fetch every board)"
         required: false
         default: "60"
+      all_queues:
+        description: "Also build every user's queue (as the daily 06:05 run does)"
+        type: boolean
+        default: false
 
 # One run at a time; on-demand runs queue behind a running fetch instead of fetching twice.
 concurrency:
@@ -44,7 +48,7 @@ jobs:
         # On demand, skip boards fetched in the last hour so repeated clicks stay quick.
         run: node dist/jobs-runner.mjs fetch --stale-minutes ${{ github.event_name == 'workflow_dispatch' && (inputs.stale_minutes || '60') || '0' }}
       - name: Build queues
-        if: github.event.schedule == '5 6 * * *' || inputs.user_id != ''
+        if: github.event.schedule == '5 6 * * *' || inputs.user_id != '' || inputs.all_queues
         run: |
           if [ -n "$USER_ID" ]; then node dist/jobs-runner.mjs queues --user "$USER_ID"; else node dist/jobs-runner.mjs queues; fi
         env:
