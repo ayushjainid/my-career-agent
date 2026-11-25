@@ -52,6 +52,7 @@ Each loop is done only when its automated check, its real-use check and its exit
 | B5 Timing and pay | Offer window learned from your own stage history; pay benchmarks from H-1B wage data: `packages/core/src/timing.ts`, `jobs/my_career_agent_jobs/pay_lca.py` | Passing: TS and Python |
 | B6 Billing and privacy | Stripe Checkout and Portal, webhook (off for the free beta); draft privacy notice and DPIA in `docs/privacy/` | Passing: signature and gating tests |
 | B7 UK and Canada | Home Office sponsor register, ESDC LMIA list, country rules and currencies: `packages/core/src/countries.ts`, `jobs/my_career_agent_jobs/uk_ca_sponsors.py` | Passing: TS and Python |
+| B8 Dublin and Milan | Ireland: DETE employment permits issued to companies as sponsor evidence, Critical Skills (€40,904) and General (€36,605) permit pay minimums from 1 Mar 2026. Italy: no public sponsor list, so the posting's wording decides; EU Blue Card pay minimum about €36,300 (approximate). Italian postings detected and read (Italian headings, RAL pay, language lines, categorie protette); Italian CV with GDPR consent line, Italian form labels, Italian follow-ups and AI drafts; Italian versions of facts on the Profile: `packages/core/src/countries.ts`, `postingLanguage.ts`, `resume.ts`, `apps/api/src/ai.ts` | Passing: `packages/core/test/italy_ireland.test.ts`, `apps/api/test/dublin_milan.test.ts` |
 
 ## The web app
 

@@ -197,7 +197,7 @@ function reviewResume(body, next, out, r, ctx) {
       education: r.education.filter(Boolean).filter((e) => (e.degree || "").trim() || (e.org || "").trim()),
       projects: r.projects.filter(Boolean).map((p) => ({ ...p, bullets: clean(p.bullets) })).filter((p) => (p.name || "").trim()),
       skills: r.skills, certifications: r.certifications.filter((x) => (x.name || "").trim()),
-      languages: r.languages.filter((l) => l.language), extra: extraPick.filter((x) => x.cb.checked).map((x) => x.line),
+      language: r.language === "it" ? "it" : "en", languages: r.languages.filter((l) => l.language), extra: extraPick.filter((x) => x.cb.checked).map((x) => x.line),
     };
     const res = await api("POST", "/resume/import", payload);
     state.suggestedTitle = res.suggestions.targetTitle;

@@ -212,10 +212,16 @@ const STAGE_ORDER = ["queued", "approved", "ready_for_review", "failed", "submit
 const stateTag = (s) => el("span", { class: `tag ${STATE_TONE[s] || ""}` }, STATE_LABEL[s] || s);
 async function moveTo(appId, to, note) { await api("POST", `/applications/${appId}/status`, { state: to, note }); toast(STATE_LABEL[to]); }
 
-const COUNTRIES = [["US", "United States"], ["GB", "United Kingdom"], ["CA", "Canada"]];
+const COUNTRIES = [["US", "United States"], ["GB", "United Kingdom"], ["CA", "Canada"], ["IE", "Ireland"], ["IT", "Italy"]];
 const COUNTRY_NAME = Object.fromEntries(COUNTRIES);
 const WORK_STATUS = [["needs_sponsorship", "Needs visa sponsorship"], ["work_visa", "Has a work visa (no sponsorship)"], ["permanent_resident", "Permanent resident"], ["citizen", "Citizen"]];
-const CURRENCY = { US: "USD", GB: "GBP", CA: "CAD" };
+const CURRENCY = { US: "USD", GB: "GBP", CA: "CAD", IE: "EUR", IT: "EUR" };
+/** Status choices worded the way each country says them. Values are the same everywhere. */
+function workStatusFor(code) {
+  if (code === "IE") return [["needs_sponsorship", "Needs an employment permit"], ["work_visa", "Has a permit or Stamp (no new permit)"], ["permanent_resident", "Stamp 4 or long-term residence"], ["citizen", "Irish, EU/EEA or Swiss citizen"]];
+  if (code === "IT") return [["needs_sponsorship", "Needs a work permit or EU Blue Card"], ["work_visa", "Has a permesso di soggiorno for work"], ["permanent_resident", "EU long-term resident"], ["citizen", "Italian, EU/EEA or Swiss citizen"]];
+  return WORK_STATUS;
+}
 
 // ---------------------------------------------------------------- shell
 const ROUTES = [["today", "Today"], ["applications", "Applications"], ["followups", "Follow-ups"], ["network", "Network"], ["profile", "Profile"], ["settings", "Settings"]];
@@ -377,6 +383,8 @@ const SPONSOR_EVIDENCE = {
   US: "Only employers with H-1B (LCA) and PERM filings",
   GB: "Only employers on the Home Office register of licensed sponsors",
   CA: "Only employers with approved LMIA positions",
+  IE: "Only employers issued Irish employment permits (DETE); pay must reach the €40,904 Critical Skills or €36,605 General permit minimum",
+  IT: "Italy publishes no sponsor list, so the posting's wording decides; pay must reach about €36,300 for an EU Blue Card",
 };
 /**
  * One country in the work-authorization grid: name, status and what that status means, aligned in
@@ -407,7 +415,7 @@ const STEP_FORMS = {
     const home = select([["", "Choose…"], ...COUNTRIES, ["IN", "India"], ["CN", "China"], ["XX", "Somewhere else"]], (p && p.settings.home_country) || "", { id: "home-country" });
     const rows = COUNTRIES.map(([code, name]) => {
       const on = input({ type: "checkbox", checked: have.has(code) || (!have.size && code === "US"), id: `wa-${code}` });
-      const st = select(WORK_STATUS, (have.get(code) || {}).status || "needs_sponsorship", { "aria-label": `Your status in ${name}` });
+      const st = select(workStatusFor(code), (have.get(code) || {}).status || "needs_sponsorship", { "aria-label": `Your status in ${name}` });
       return { code, on, st, node: authRow(code, el("label", { class: "check auth-name", for: on.id }, on, el("span", {}, name)), st, on) };
     });
     const save = btn("Save and continue", { kind: "primary", icon: "arrow" });
@@ -468,14 +476,15 @@ const STEP_FORMS = {
 
   async answers(body, next, out) {
     const [r, p] = await Promise.all([api("GET", "/answers"), api("GET", "/profile")]);
-    const us = p.workAuth.some((a) => a.country === "US");
-    const wanted = r.missing.filter((q) => q.key.startsWith("contact.") || (us && q.key.startsWith("us.")));
+    const mine = new Set(p.workAuth.map((a) => a.country.toLowerCase()));
+    // Contact details, then the work-authorization questions of each country applied in.
+    const wanted = r.missing.filter((q) => q.key.startsWith("contact.") || (/^(us|ie|it)\./.test(q.key) && mine.has(q.key.slice(0, 2)) && /right_to_work|needs_|work_authorized/.test(q.key)));
     const rows = wanted.map((q) => answerInput(q));
     const save = btn("Save and continue", { kind: "primary", icon: "arrow" });
     action(save, out, async () => {
       for (const row of rows) { const v = row.value(); if (v) await api("PUT", `/answers/${row.key}`, { answer: v, sensitive: row.sensitive }); }
       await loadMe();
-      if (!state.me.onboarding.steps.find((s) => s.id === "answers").done) throw new Error(us ? "Fill in your name, email and the three US work questions." : "Fill in your name and email.");
+      if (!state.me.onboarding.steps.find((s) => s.id === "answers").done) throw new Error(mine.size && [...mine].some((c) => ["us", "ie", "it"].includes(c)) ? "Fill in your name, email and the work questions for each country." : "Fill in your name and email.");
       await next();
     });
     clear(body, el("div", { class: "sheet" }, rows.length ? rows.map((x) => x.node) : el("p", {}, "These are all answered. You can change them any time in Settings.")),
@@ -816,6 +825,8 @@ VIEWS.packet = async (jobId) => {
     el("div", { class: "grow" }, el("h1", { class: "co-head" }, bullet(p.job.company_id || p.job.company), el("span", {}, p.job.title, el("span", { class: "at" }, ` at ${p.job.company}`))),
       el("p", { class: "lede" }, meta, b ? ` · ${b.scope === "company" ? "This employer's filed" : "Market"} median ${money(b.p50, b.currency)}, middle half ${money(b.p25, b.currency)}–${money(b.p75, b.currency)} (${plural(b.n, "filing")})` : "")),
     p.job.apply_url ? el("a", { class: "btn primary", href: p.job.apply_url, target: "_blank", rel: "noopener noreferrer" }, "Open application form", icon("out")) : null);
+  const italian = p.language === "it";
+  const lang = italian ? msg("info", el("strong", {}, "Italian application. "), "The posting is in Italian, so the CV, AI drafts and follow-ups are in Italian, and each answer shows what Italian forms call the field.") : null;
   const status = p.ready ? msg("go", "Packet ready. Fill in the form, review it, and submit it yourself.")
     : msg("hold", el("strong", {}, "Not ready yet"), el("ul", {}, p.blockers.map((x) => el("li", {}, x))));
   const integrity = p.job.integrity && p.job.integrity.level === "alarm"
@@ -825,11 +836,12 @@ VIEWS.packet = async (jobId) => {
   resumeSheet(resume, p);
   const fields = el("section", { class: "sheet", "aria-labelledby": "h-fields" },
     el("div", { class: "sheet-head" }, el("h2", { id: "h-fields" }, "Copy into the form"), el("span", { class: "note" }, "Sensitive answers are copied exactly.")),
-    p.fields.length ? p.fields.map((f) => el("div", { class: "field" }, el("div", { class: "lbl" }, f.label, f.sensitive ? el("div", { class: "note" }, "Copy exactly") : null), el("div", { class: "val" }, f.value),
+    p.fields.length ? p.fields.map((f) => el("div", { class: "field" }, el("div", { class: "lbl" }, f.label,
+        f.formLabel ? el("div", { class: "note", lang: "it" }, `On the form: ${f.formLabel}`) : null, f.sensitive ? el("div", { class: "note" }, "Copy exactly") : null), el("div", { class: "val" }, f.value),
       btn("Copy", { small: true, icon: "copy", aria: `Copy ${f.label}`, onclick: () => copy(f.value) })))
       : el("p", { class: "note" }, "Your answer bank is empty. ", el("a", { href: "#/settings/answers" }, "Add answers"), " once and every packet uses them."),
     a && a.referral_name ? el("div", { class: "field" }, el("div", { class: "lbl" }, "Referred by"), el("div", { class: "val" }, a.referral_name), btn("Copy", { small: true, icon: "copy", onclick: () => copy(a.referral_name) })) : null);
-  const editor = answersEditor(a, p.answers, facts.items, p.job);
+  const editor = answersEditor(a, p.answers, facts.items, { ...p.job, language: p.language });
   const gateNotes = a && a.gates ? a.gates.flatMap((g) => g.notes.map((n) => `${g.gate}: ${n}`)) : [];
   const gates = gateNotes.length ? el("details", { class: "sheet" }, el("summary", {}, `Requirement notes (${gateNotes.length})`), el("ul", { class: "list" }, gateNotes.map((n) => el("li", { class: "note" }, n)))) : null;
 
@@ -840,7 +852,7 @@ VIEWS.packet = async (jobId) => {
       else { const x = btn({ approved: "Approve", failed: "Couldn't apply", skipped: "Skip" }[s]); action(x, out, async () => { await moveTo(a.id, s); route(); }); actions.append(x); }
     }
   }
-  render(head, integrity, status, out,
+  render(head, integrity, lang, status, out,
     el("div", { class: "stack" }, resume, fields, editor, gates),
     el("h2", {}, "Status"),
     a ? el("div", { class: "sheet" }, el("p", { style: { marginTop: 0 } }, "Now: ", stateTag(a.state)), actions.children.length ? actions : el("p", { class: "note" }, "Track later stages from Applications.")) : el("p", { class: "note" }, "This job isn't in your queue."));
@@ -851,17 +863,20 @@ function issueText(i) {
   if (i.code === "too_short") return "The resume is short for this role. Confirm more facts on your Profile to fill it out.";
   if (i.code === "missing_required") return after ? `Tracking systems may not find \u201c${after}\u201d in the PDF. Check it in the Word file.` : "Some required details may not be readable in the PDF. Check the Word file.";
   if (i.code === "no_phone") return "No phone number. Add one in Settings \u203a Answer bank.";
+  if (i.code === "untranslated") return el("span", {}, i.detail.replace(" Add Italian versions on your Profile.", " "), el("a", { href: "#/profile/italian" }, "Add Italian versions"), ".");
   return i.detail;
 }
 async function resumeSheet(box, p) {
   const out = el("div");
   const files = el("div", { class: "files" });
-  const dl = (fmt, label) => { const x = btn(label, { icon: "down" }); action(x, out, () => download(p.resume[fmt], `Resume.${fmt}`)); return x; };
-  clear(box, el("div", { class: "sheet-head" }, el("h2", { id: "h-resume" }, "Resume for this job"), el("span", { class: "note" }, "Built only from facts you've confirmed")), files, out, loading());
+  const italian = p.language === "it";
+  const dl = (fmt, label, extra = "") => { const x = btn(label, { icon: "down" }); action(x, out, () => download(p.resume[fmt] + extra, `${italian && !extra ? "CV" : "Resume"}.${fmt}`)); return x; };
+  clear(box, el("div", { class: "sheet-head" }, el("h2", { id: "h-resume" }, italian ? "CV in Italian for this job" : "Resume for this job"), el("span", { class: "note" }, "Built only from facts you've confirmed")), files, out, loading());
   try {
     const r = await api("GET", p.resume.check.replace(/^\/api/, ""));
     const c = r.check;
     files.append(dl("pdf", "PDF"), dl("docx", "Word"));
+    if (italian) { const en = dl("pdf", "English version (PDF)", "&lang=en"); en.classList.add("quiet"); files.append(en); }
     box.lastChild.replaceWith(el("div", {},
       el("p", { class: "note" }, `${plural(r.resume.factIds.length, "confirmed fact")} used, ${plural(r.pages, "page")}`, c.keywordCoverage !== null ? `, covers ${Math.round(c.keywordCoverage * 100)}% of the posting's keywords` : "", "."),
       el("ul", { class: "issues" },
@@ -891,7 +906,7 @@ function answersEditor(app, existing, facts, job) {
     const cites = el("div", { class: "facts-pick" }, verified.map((f) => el("label", { class: "check" }, input({ type: "checkbox", value: f.id, checked: a.citedFactIds.includes(f.id) }), el("span", {}, short(f.text, 110)))));
     const result = el("div");
     const node = el("div", { class: "answer" });
-    const draftBtn = state.aiKey && editable ? btn("Draft with my AI", { small: true, icon: "spark" }) : null;
+    const draftBtn = state.aiKey && editable ? btn(job.language === "it" ? "Draft in Italian with my AI" : "Draft with my AI", { small: true, icon: "spark" }) : null;
     if (draftBtn) action(draftBtn, result, async () => {
       if (!label.value.trim()) throw new Error("Type the question first.");
       const r = await api("POST", "/ai/draft", { jobId: job.id, question: label.value.trim(), kind: kind.value, maxChars: max.value ? Number(max.value) : undefined });
@@ -903,7 +918,7 @@ function answersEditor(app, existing, facts, job) {
     const row = { get: () => ({ label: label.value.trim(), kind: kind.value, text: text.value, shortText: shortT.value.trim() || undefined,
       citedFactIds: [...cites.querySelectorAll("input:checked")].map((i) => i.value), maxChars: max.value ? Number(max.value) : undefined }), result };
     append(node, [
-      el("div", { class: "grid", style: { gridTemplateColumns: "minmax(0,2fr) minmax(140px,1fr) 130px" } }, field("Question", label), field("Kind", kind), field("Limit", max, "(chars)")),
+      el("div", { class: "grid q-grid" }, field("Question", label), field("Kind", kind), field("Limit", max, "(chars)")),
       el("div", { style: { marginTop: "12px" } }, el("div", { class: "row" }, el("label", { for: (text.id = `t${Math.random().toString(36).slice(2)}`), class: "grow", style: { margin: 0 } }, "Answer"), count), text),
       el("div", { style: { marginTop: "12px" } }, field("Short version", shortT, "(optional)")),
       el("div", { style: { marginTop: "12px" } }, el("div", { class: "label" }, "Facts this answer relies on"), verified.length ? cites : el("p", { class: "note" }, "Confirm facts on your Profile to cite them.")),
@@ -928,7 +943,9 @@ function answersEditor(app, existing, facts, job) {
   action(save, out, async () => { const r = await api("PUT", `/applications/${app.id}/answers`, collect()); rows.forEach((row) => row.result.replaceChildren()); r.items.forEach((x, i) => showReview(rows[i], x)); toast("Saved"); });
   append(box, [
     el("div", { class: "sheet-head" }, el("h2", { id: "h-answers" }, "Free-text answers"), el("span", { class: "note" }, "Counted the way forms count them")),
-    el("p", { class: "note measure", style: { marginTop: 0 } }, state.aiKey ? "Write them yourself or draft with your own AI key, then check them here." : "Write them yourself or with any AI you use, then check them here. To draft in the app, add your own AI key in Settings."),
+    el("p", { class: "note measure", style: { marginTop: 0 } }, job.language === "it"
+      ? (state.aiKey ? "Write them in Italian yourself, or draft in Italian with your own AI key, then check them here." : "Write them in Italian yourself or with any AI you use, then check them here.")
+      : state.aiKey ? "Write them yourself or draft with your own AI key, then check them here." : "Write them yourself or with any AI you use, then check them here. To draft in the app, add your own AI key in Settings."),
     list,
     editable ? el("div", { class: "row", style: { marginTop: "16px" } }, btn("Add question", { icon: "plus", onclick: () => addRow() }), check, save) : el("p", { class: "note" }, app ? "Answers are frozen once you've submitted." : ""),
     out]);
@@ -1026,13 +1043,72 @@ VIEWS.network = async () => {
 };
 
 // ---------------------------------------------------------------- profile
-VIEWS.profile = async () => {
+VIEWS.profile = async (part) => {
   let p;
   try { p = await api("GET", "/profile"); } catch (e) { if (e.status === 404) { location.hash = "#/setup"; return; } throw e; }
   const [facts, timing] = await Promise.all([api("GET", "/facts"), api("GET", "/timing")]);
   render(pageHead("Profile", `${p.facts.verified} of ${plural(p.facts.n, "fact")} confirmed. Only confirmed facts count toward scores, resumes and answers.`),
-    el("div", { class: "stack" }, factsSheet(facts.items), targetsSheet(p), languagesSheet(p), timingSheet(p, timing)));
+    el("div", { class: "stack" }, factsSheet(facts.items), italianSheet(p, facts.items, part === "italian"), targetsSheet(p), languagesSheet(p), timingSheet(p, timing)));
+  if (part) { const t = document.getElementById(part); if (t) { t.scrollIntoView(); const f = t.querySelector("h2"); if (f) { f.tabIndex = -1; f.focus({ preventScroll: true }); } } }
 };
+// Italian versions of facts: used when a posting is in Italian. Only the user's words
+// (or their own AI's draft, which they review) are saved; nothing is translated silently.
+const TRANSLATABLE = ["role", "achievement", "education", "project", "certification"];
+function italianSheet(p, items, asked) {
+  const wantsItaly = p.workAuth.some((a) => a.country === "IT") || p.targets.some((t) => t.country === "IT");
+  if (!wantsItaly && !asked) return null;
+  const out = el("div", { "aria-live": "polite" });
+  const rows = items.filter((f) => f.verified && TRANSLATABLE.includes(f.kind) && f.lang !== "it");
+  if (!rows.length) return el("section", { class: "sheet", id: "italian" }, el("h2", {}, "Italian versions"), out,
+    el("p", { class: "note measure" }, items.some((f) => f.lang === "it") ? "Your facts are already in Italian, so Italian CVs use them as written." : "Confirmed roles, achievements and education show up here so you can give each an Italian version."));
+  const boxes = new Map();
+  const count = el("span", { class: "note" });
+  const recount = () => { const n = rows.filter((f) => (boxes.get(f.id).value || "").trim()).length; count.textContent = `${n} of ${rows.length} have an Italian version`; };
+  const list = el("ul", { class: "list" }, rows.map((f) => {
+    const ta = el("textarea", { rows: 2, lang: "it", style: { minHeight: "64px" }, placeholder: "Versione italiana", "aria-label": `Italian version of: ${f.text}` });
+    ta.value = (f.translations && f.translations.it) || "";
+    ta.addEventListener("input", recount);
+    const problem = el("div", { class: "note" });
+    boxes.set(f.id, ta); ta._problem = problem;
+    return el("li", { style: { display: "block" } },
+      el("div", { class: "note" }, [f.kind[0].toUpperCase() + f.kind.slice(1), f.org].filter(Boolean).join(" · ")),
+      el("div", { style: { margin: "4px 0 8px" } }, f.text), ta, problem);
+  }));
+  recount();
+  const save = btn("Save Italian versions", { kind: "primary" });
+  action(save, out, async () => {
+    let n = 0;
+    for (const f of rows) {
+      const v = boxes.get(f.id).value.trim();
+      const was = ((f.translations && f.translations.it) || "").trim();
+      if (v === was) continue;
+      await api("PATCH", `/facts/${f.id}`, { translations: { it: v || null } });
+      f.translations = { ...(f.translations || {}), it: v || undefined }; n++;
+    }
+    toast(n ? `Saved ${plural(n, "version")}` : "Nothing changed");
+  });
+  const ai = state.aiKey ? btn("Translate missing with my AI", { icon: "spark" }) : null;
+  if (ai) action(ai, out, async () => {
+    const missing = rows.filter((f) => !boxes.get(f.id).value.trim()).slice(0, 40);
+    if (!missing.length) { toast("Every fact has an Italian version"); return; }
+    const r = await api("POST", "/ai/translate", { to: "it", factIds: missing.map((f) => f.id) });
+    let flagged = 0;
+    for (const it of r.items) {
+      const ta = boxes.get(it.id); if (!ta) continue;
+      ta.value = it.text;
+      ta._problem.textContent = it.problems && it.problems.length ? `Check this: ${it.problems.join(" ")}` : "";
+      if (it.problems && it.problems.length) flagged++;
+    }
+    recount();
+    clear(out, msg("info", `Drafted ${plural(r.items.length, "version")}${flagged ? `; ${flagged} need a closer look` : ""}. Read them, fix anything that's off, then save. Nothing is saved until you do.`));
+  });
+  return el("section", { class: "sheet", id: "italian" },
+    el("div", { class: "sheet-head" }, el("h2", {}, "Italian versions"), count),
+    el("p", { class: "note measure", style: { marginTop: 0 } }, "Italian postings get a CV in Italian. Each confirmed fact uses the Italian version you give here; facts without one stay in English and the CV check says so."),
+    out, list,
+    el("div", { class: "row", style: { marginTop: "12px" } }, save, ai,
+      ai ? null : el("span", { class: "note" }, "To draft these in the app, add your own AI key in Settings.")));
+}
 function factsSheet(items) {
   const out = el("div", { "aria-live": "polite" });
   const kind = select(["role", "achievement", "skill", "project", "education", "certification", "language"].map((k) => [k, k[0].toUpperCase() + k.slice(1)]), "achievement");
@@ -1129,7 +1205,7 @@ VIEWS.settings = async (section) => {
     el("div", { class: "split settings" },
       el("nav", { class: "section-nav", "aria-label": "Settings sections" }, SETTINGS.map(([id, l]) => el("a", { href: `#/settings/${id}`, onclick: (e) => { e.preventDefault(); document.getElementById(`s-${id}`).scrollIntoView({ behavior: "smooth" }); history.replaceState(null, "", `#/settings/${id}`); } }, l))),
       el("div", {},
-        sec("answers", "Answer bank", answerBank(answers)),
+        sec("answers", "Answer bank", answerBank(answers, (p && p.workAuth) || [])),
         sec("work", "Work authorization", workAuth(p)),
         sec("companies", "Companies", companies(prefs.items)),
         sec("email", "Email forwarding", inboundBody(inbound)),
@@ -1139,8 +1215,12 @@ VIEWS.settings = async (section) => {
         sec("account", "Account", accountSettings()))));
   if (section) { const t = document.getElementById(`s-${section}`); if (t) t.scrollIntoView(); }
 };
-function answerBank(r) {
+function answerBank(r, workAuth = []) {
   const out = el("div", { "aria-live": "polite" });
+  // Country questions (us.*, ie.*, it.*) only for the countries you apply in.
+  const mine = new Set(workAuth.map((a) => a.country.toLowerCase()));
+  const relevant = (k) => { const m = /^(us|ie|it|gb|ca)\./.exec(k); return !m || mine.has(m[1]); };
+  r = { ...r, missing: r.missing.filter((q) => relevant(q.key)) };
   const row = (key, label, value, sensitive, hint, removable) => {
     const q = { key, label, sensitive, hint };
     const x = answerInput(q, value || "");
@@ -1167,20 +1247,21 @@ function workAuth(p) {
   const have = new Map(((p && p.workAuth) || []).map((a) => [a.country, a]));
   const rows = COUNTRIES.map(([code, name]) => {
     const a = have.get(code);
-    const st = select([["", "Not applying here"], ...WORK_STATUS], a ? a.status : "", { "aria-label": `Your status in ${name}` });
-    const min = input({ type: "number", min: 0, value: a ? a.min_lca_filings : code === "US" ? 5 : 1, inputmode: "numeric", "aria-label": `Fewest sponsorship records in ${name}` });
+    const st = select([["", "Not applying here"], ...workStatusFor(code)], a ? a.status : "", { "aria-label": `Your status in ${name}` });
+    // Italy has no employer register, so there is no record count to set.
+    const min = code === "IT" ? el("span", { class: "note auth-na" }, "–") : input({ type: "number", min: 0, value: a ? a.min_lca_filings : code === "US" ? 5 : 1, inputmode: "numeric", "aria-label": `Fewest sponsorship records in ${name}` });
     const perm = code === "US" ? input({ type: "number", min: 0, value: a ? a.min_perm_certified : 3, inputmode: "numeric", "aria-label": "Fewest PERM certifications" }) : el("span", { class: "note auth-na" }, "–");
     const save = btn("Save", { small: true });
     action(save, out, async () => {
       if (!st.value) throw new Error(`To stop applying in ${name}, remove its target roles in Profile.`);
-      await api("PUT", `/work-auth/${code}`, { status: st.value, minLcaFilings: Number(min.value), minPermCertified: code === "US" ? Number(perm.value) : 0 }); toast("Saved");
+      await api("PUT", `/work-auth/${code}`, { status: st.value, minLcaFilings: code === "IT" ? 0 : Number(min.value), minPermCertified: code === "US" ? Number(perm.value) : 0 }); toast("Saved");
     });
     // The column headings name these on wide screens; on narrow ones each carries its own label.
     const num = (label, control) => el("label", { class: "auth-num" }, el("span", { class: "auth-num-label" }, label), control);
-    return authRow(code, el("span", { class: "auth-name" }, name), st, null, num("Min. records", min), code === "US" ? num("Min. PERM", perm) : perm, save);
+    return authRow(code, el("span", { class: "auth-name" }, name), st, null, code === "IT" ? min : num("Min. records", min), code === "US" ? num("Min. PERM", perm) : perm, save);
   });
   return el("div", {},
-    el("p", { class: "note measure", style: { marginTop: 0 } }, "When you need sponsorship, employers must show a public record: H-1B (LCA) filings and PERM certifications in the US, a Home Office sponsor licence in the UK (A-rated by default), approved LMIA positions in Canada. The numbers are the fewest records an employer needs."),
+    el("p", { class: "note measure", style: { marginTop: 0 } }, "When you need sponsorship, employers must show a public record: H-1B (LCA) filings and PERM certifications in the US, a Home Office sponsor licence in the UK (A-rated by default), approved LMIA positions in Canada, Irish employment permits issued (DETE) in Ireland. Italy has no public list, so the posting decides. The numbers are the fewest records an employer needs."),
     el("div", { class: "auth-head", "aria-hidden": "true" }, el("span", {}, "Country"), el("span", {}, "Your status"), el("span", {}, "Min. records"), el("span", {}, "Min. PERM"), el("span")),
     el("div", { class: "auth-table" }, rows), out);
 }

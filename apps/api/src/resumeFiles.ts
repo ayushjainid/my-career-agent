@@ -45,12 +45,14 @@ export function resumeDocx(doc: ResumeDoc): Uint8Array {
     heading(t);
     body.push(...rows.map(roleXml));
   };
-  roles("Experience", doc.experience);
-  roles("Projects", doc.projects);
-  roles("Education", doc.education);
-  if (doc.certifications.length) { heading("Certifications"); body.push(...doc.certifications.map((x) => para(run(x)))); }
-  if (doc.skills.length) { heading("Skills"); body.push(para(run(doc.skills.join(", ")))); }
-  if (doc.languages.length) { heading("Languages"); body.push(para(run(doc.languages.join(", ")))); }
+  const h = doc.headings;
+  roles(h.experience, doc.experience);
+  roles(h.projects, doc.projects);
+  roles(h.education, doc.education);
+  if (doc.certifications.length) { heading(h.certifications); body.push(...doc.certifications.map((x) => para(run(x)))); }
+  if (doc.skills.length) { heading(h.skills); body.push(para(run(doc.skills.join(", ")))); }
+  if (doc.languages.length) { heading(h.languages); body.push(para(run(doc.languages.join(", ")))); }
+  if (doc.footer) body.push(para(run(doc.footer, { size: 16 }), { spaceBefore: 360 }));
 
   const W = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"';
   const files: Record<string, Uint8Array> = {
@@ -163,12 +165,14 @@ export async function resumePdf(doc: ResumeDoc): Promise<{ bytes: Uint8Array; pa
   write([c.email, c.phone, c.location, ...c.links].filter(Boolean).join(" | "), regular, 10, 0, 4);
   if (doc.headline) write(doc.headline, regular, 11.5, 0, 4);
   const section = (t: string, rows: ResumeRole[]) => { if (rows.length) { heading(t); rows.forEach(role); } };
-  section("Experience", doc.experience);
-  section("Projects", doc.projects);
-  section("Education", doc.education);
-  if (doc.certifications.length) { heading("Certifications"); doc.certifications.forEach((x) => write(x, regular, 10, 0, 3)); }
-  if (doc.skills.length) { heading("Skills"); write(doc.skills.join(", "), regular, 10, 0, 3); }
-  if (doc.languages.length) { heading("Languages"); write(doc.languages.join(", "), regular, 10, 0, 3); }
+  const h = doc.headings;
+  section(h.experience, doc.experience);
+  section(h.projects, doc.projects);
+  section(h.education, doc.education);
+  if (doc.certifications.length) { heading(h.certifications); doc.certifications.forEach((x) => write(x, regular, 10, 0, 3)); }
+  if (doc.skills.length) { heading(h.skills); write(doc.skills.join(", "), regular, 10, 0, 3); }
+  if (doc.languages.length) { heading(h.languages); write(doc.languages.join(", "), regular, 10, 0, 3); }
+  if (doc.footer) { y -= 12; write(doc.footer, regular, 8, 0, 3); }
 
   const bytes = await pdf.save();
   return { bytes, pages: pdf.getPageCount(), lines: resumeLines(doc).map(pdfSafe) };

@@ -1,7 +1,7 @@
 // Beta loop B3: the forwarding address, recent inbound emails, and follow-up and thank-you drafts.
 // Drafts restate only what the employer already received; My Career Agent never sends them.
 
-import { draftFollowup, followupActions, type FollowupApp } from "@my-career-agent/core";
+import { detectLanguage, draftFollowup, followupActions, type FollowupApp } from "@my-career-agent/core";
 import { Hono } from "hono";
 import type { AppBindings } from "./env.js";
 import { stmt } from "./lib/tenant.js";
@@ -34,10 +34,12 @@ followups.get("/inbound", async (c) => {
 });
 
 /** What to send today: follow-ups after 10 quiet days (at most two), thank-yous after interviews. */
+const lang = (a: Record<string, unknown>): "it" | "en" => ((a.language as string) || detectLanguage(String(a.description ?? ""))) === "it" ? "it" : "en";
+
 followups.get("/followups", async (c) => {
   const uid = c.get("userId");
   const [apps = [], events = [], answers = [], me = []] = await c.get("db").asUser(uid, [
-    stmt(`SELECT a.id, a.state, a.submitted_at, j.title, j.apply_url, co.id AS company_id, co.name AS company, ct.full_name AS referral_name
+    stmt(`SELECT a.id, a.state, a.submitted_at, j.title, j.apply_url, coalesce(j.requirements->>'postingLanguage', '') AS language, left(j.description_text, 4000) AS description, co.id AS company_id, co.name AS company, ct.full_name AS referral_name
           FROM mca.application a JOIN mca.job j ON j.id = a.job_id JOIN mca.company co ON co.id = j.company_id
           LEFT JOIN mca.contact ct ON ct.id = a.referral_contact_id
           WHERE a.state IN ('submitted','screen','interview')`),
@@ -71,8 +73,8 @@ followups.get("/followups", async (c) => {
         note: `No reply in ${act.daysQuiet} days after ${act.sent} follow-up${act.sent === 1 ? "" : "s"}. Consider marking it closed and moving on.` };
     const draft = draftFollowup({
       kind: act.kind, channel: "email", company: String(a.company), role: String(a.title),
-      contactName: null, submittedClaim: firstSentence || "my experience matches what the role asks for",
-      submittedMaterials: submitted || firstSentence, senderName: sender,
+      contactName: null, submittedClaim: firstSentence || (lang(a) === "it" ? "la mia esperienza corrisponde a ciò che il ruolo richiede" : "my experience matches what the role asks for"),
+      submittedMaterials: submitted || firstSentence, senderName: sender, language: lang(a),
     });
     if (!firstSentence) draft.warnings.unshift("No saved answers for this application. Replace the reminder line with something from what you sent.");
     return { ...base, kind: act.kind, ...(act.kind === "follow_up" ? { daysQuiet: act.daysQuiet, sent: act.sent } : { interviewAt: act.interviewAt }), draft };

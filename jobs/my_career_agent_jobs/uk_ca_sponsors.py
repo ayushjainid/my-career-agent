@@ -1,4 +1,4 @@
-"""UK and Canada sponsor data (beta loop B7).
+"""UK, Canada and Ireland sponsor data (beta loop B7).
 
 UK: Home Office "Register of licensed sponsors: workers", a CSV published daily at
     https://www.gov.uk/government/publications/register-of-licensed-sponsors-workers
@@ -7,10 +7,15 @@ CA: ESDC "Positive Labour Market Impact Assessment (LMIA) employers list", quart
     https://open.canada.ca (search "positive LMIA employers"). Bilingual headers; a title row or
     two may come first. Columns include Employer, Occupation and Approved Positions.
 
-Both write mca.sponsor_record rows (country GB or CA), replacing earlier rows from the same file.
+IE: Department of Enterprise, Tourism and Employment, "Permits issued to companies <year>", an XLSX
+    updated monthly at https://enterprise.gov.ie/en/what-we-do/workplace-and-skills/employment-permits/statistics/
+    One row per employer, a column per month and a total. A title row or two may come first.
+    Italy publishes no employer-level list, so there is no IT loader.
+
+Each writes mca.sponsor_record rows (country GB, CA or IE), replacing earlier rows from the same file.
 
 Usage:
-  python -m my_career_agent_jobs.uk_ca_sponsors --uk register.csv [--ca lmia.csv] [--database-url URL]
+  python -m my_career_agent_jobs.uk_ca_sponsors [--uk register.csv] [--ca lmia.csv] [--ie permits-2026.xlsx] [--database-url URL]
 """
 
 from __future__ import annotations
@@ -119,6 +124,47 @@ def summarise_ca(path: Path) -> list[dict[str, object]]:
     ]
 
 
+MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
+
+
+def summarise_ie(path: Path) -> list[dict[str, object]]:
+    """DETE permits issued to companies: total permits per employer for the file's year."""
+    rows = _read_rows(path)
+    h, col = _header(rows, [["employer name", "employer", "company name", "company"]], "IE permits list")
+    names = [re.sub(r"\s+", " ", c).strip().lower() for c in rows[h]]
+    total = next((j for j, n in enumerate(names) if n in ("total", "grand total", "total permits", "permits issued")), None)
+    months = [j for j, n in enumerate(names) if n[:3] in MONTHS]
+    if total is None and not months:
+        raise LayoutError(f"IE permits list: no Total or month columns in header {rows[h]}")
+    year_match = re.search(r"(20\d{2})", path.name) or next((re.search(r"(20\d{2})", " ".join(r)) for r in rows[:h + 1] if re.search(r"(20\d{2})", " ".join(r))), None)
+    year = year_match.group(1) if year_match else None
+
+    def number(r: list[str], j: int) -> int:
+        try:
+            return int(float(re.sub(r"[^0-9.]", "", r[j]) or 0)) if j < len(r) else 0
+        except ValueError:
+            return 0
+
+    totals: dict[str, dict[str, object]] = defaultdict(lambda: {"permits": 0, "name": ""})
+    for r in rows[h + 1:]:
+        name = (r[col["employer name"]] if len(r) > col["employer name"] else "").strip()
+        if not name or name.lower().startswith(("total", "grand total")):
+            continue
+        norm = normalize_company_name(name)
+        if not norm:
+            continue
+        permits = number(r, total) if total is not None else sum(number(r, j) for j in months)
+        t = totals[norm]
+        t["name"] = t["name"] or name
+        t["permits"] = int(t["permits"]) + permits
+    return [
+        {"country": "IE", "source": "dete_permits", "employer_name": t["name"], "employer_norm": norm, "employer_fein": None,
+         "occupation_code": None, "period_start": f"{year}-01-01" if year else None, "period_end": f"{year}-12-31" if year else None,
+         "filings": t["permits"], "certified": t["permits"], "denied": 0, "withdrawn": 0, "wage_levels": None, "extra": None}
+        for norm, t in totals.items() if int(t["permits"]) > 0
+    ]
+
+
 FIELDS = ["country", "source", "employer_name", "employer_norm", "employer_fein", "occupation_code", "period_start", "period_end",
           "filings", "certified", "denied", "withdrawn", "wage_levels", "extra", "source_file"]
 
@@ -135,7 +181,7 @@ def load(rows: list[dict[str, object]], source_file: str, database_url: str) -> 
         )
         cur.execute(
             """UPDATE mca.sponsor_record s SET company_id = c.id FROM mca.company c
-               WHERE s.company_id IS NULL AND s.country IN ('GB', 'CA')
+               WHERE s.company_id IS NULL AND s.country IN ('GB', 'CA', 'IE')
                  AND (c.name_norm = s.employer_norm OR s.employer_norm = ANY (c.aliases))"""
         )
 
@@ -144,11 +190,12 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--uk", type=Path)
     p.add_argument("--ca", type=Path)
+    p.add_argument("--ie", type=Path, action="append", default=[], help="repeat for several years")
     p.add_argument("--database-url", default=os.environ.get("INGEST_DATABASE_URL"))
     args = p.parse_args(argv)
-    if not args.uk and not args.ca:
-        p.error("give --uk and/or --ca")
-    for path, fn in ((args.uk, summarise_uk), (args.ca, summarise_ca)):
+    if not args.uk and not args.ca and not args.ie:
+        p.error("give --uk, --ca and/or --ie")
+    for path, fn in ((args.uk, summarise_uk), (args.ca, summarise_ca), *((p_, summarise_ie) for p_ in args.ie)):
         if not path:
             continue
         rows = fn(path)

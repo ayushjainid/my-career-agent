@@ -18,3 +18,4 @@ export * from "./resume.js";
 export * from "./titles.js";
 export * from "./timing.js";
 export * from "./countries.js";
+export * from "./postingLanguage.js";

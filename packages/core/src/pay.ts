@@ -24,9 +24,31 @@ function toNumber(raw: string, k: boolean): number {
   return k ? n * 1000 : n;
 }
 
+// Italian postings: "RAL 45.000 - 55.000 €", "RAL: 40-50k", "Retribuzione annua lorda da 38.000 a 45.000 euro",
+// and amounts with the euro sign after the number ("45.000€ - 55.000€"). RAL is always a gross annual figure.
+const NUM = String.raw`(\d{1,3}(?:[.\s]\d{3})+|\d{2,6})`;
+const RAL = new RegExp(String.raw`\b(?:RAL|retribuzione(?: annua)?(?: lorda)?|stipendio(?: annuo)?(?: lordo)?|compenso(?: annuo)?(?: lordo)?)\b[^\d€\n]{0,25}(?:€\s?)?` + NUM +
+  String.raw`\s?(k)?\s*(?:€|euro|eur)?\s*(?:-|–|—|a|fino a|e)\s*(?:€\s?)?` + NUM + String.raw`\s?(k)?`, "i");
+const EURO_AFTER = new RegExp(NUM + String.raw`\s?(k)?\s*(?:€|euro|EUR)?\s*(?:-|–|—)\s*` + NUM + String.raw`\s?(k)?\s*(?:€|euro\b|EUR\b)`, "i");
+
+function parseItalian(text: string): PayRange | null {
+  const ral = RAL.exec(text);
+  const m = ral ?? EURO_AFTER.exec(text);
+  if (!m) return null;
+  const [, a, k1, b, k2] = m;
+  const k = Boolean(k1 || k2);
+  // After "RAL", small numbers are thousands: "RAL 40-50" means €40,000 to €50,000.
+  const scale = (raw: string, hasK: boolean) => { const n = toNumber(raw, hasK); return ral && n < 1000 ? n * 1000 : n; };
+  let min = scale(a!, Boolean(k1) || k), max = scale(b!, Boolean(k2) || k);
+  if (!Number.isFinite(min) || !Number.isFinite(max) || min <= 0 || max <= 0) return null;
+  if (min > max) [min, max] = [max, min];
+  if (max < 10_000 || max > 2_000_000) return null;
+  return { min, max, currency: "EUR", period: "year", source: "text" };
+}
+
 export function parsePayFromText(text: string): PayRange | null {
   const m = RANGE.exec(text);
-  if (!m) return null;
+  if (!m) return parseItalian(text);
   const [, cur, a, k1, b, k2] = m;
   const currency = CURRENCY_TOKENS.find(([re]) => re.test(cur ?? ""))?.[1] ?? null;
   const bothK = Boolean(k1 || k2);

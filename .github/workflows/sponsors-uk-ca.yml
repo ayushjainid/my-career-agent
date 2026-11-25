@@ -1,9 +1,11 @@
-name: UK and Canada sponsor data
+name: UK, Canada and Ireland sponsor data
 
 # UK: Home Office register of licensed sponsors (updated daily). Copy the CSV link from
 #   https://www.gov.uk/government/publications/register-of-licensed-sponsors-workers
 # Canada: ESDC positive LMIA employers list (quarterly). Copy the CSV link from
 #   https://open.canada.ca (search "positive labour market impact assessment employers")
+# Ireland: DETE "Permits issued to companies" for this year and last year (updated monthly), fetched
+#   from enterprise.gov.ie by default; set IE_PERMITS_URL to override this year's file.
 # Or set repository variables UK_REGISTER_URL / CA_LMIA_URL for the weekly run.
 
 on:
@@ -11,6 +13,7 @@ on:
     inputs:
       uk_url: { description: "UK register CSV URL", required: false }
       ca_url: { description: "Canada positive LMIA CSV URL", required: false }
+      ie_url: { description: "Ireland permits-issued-to-companies XLSX URL (default: this year's file)", required: false }
   schedule:
     - cron: "41 5 * * 1"
 
@@ -23,6 +26,7 @@ jobs:
     env:
       UK_URL: ${{ inputs.uk_url || vars.UK_REGISTER_URL }}
       CA_URL: ${{ inputs.ca_url || vars.CA_LMIA_URL }}
+      IE_URL: ${{ inputs.ie_url || vars.IE_PERMITS_URL }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -43,5 +47,12 @@ jobs:
           args=()
           if [ -n "${UK_URL}" ]; then curl -fL --retry 3 -o data/uk_register.csv "${UK_URL}"; args+=(--uk data/uk_register.csv); fi
           if [ -n "${CA_URL}" ]; then curl -fL --retry 3 -o data/ca_lmia.csv "${CA_URL}"; args+=(--ca data/ca_lmia.csv); fi
+          # Ireland: this year's and last year's DETE files (the file name carries the year).
+          y=$(date -u +%Y)
+          for yr in "$y" "$((y - 1))"; do
+            url="https://enterprise.gov.ie/en/publications/publication-files/permits-issued-to-companies-${yr}.xlsx"
+            if [ "$yr" = "$y" ] && [ -n "${IE_URL}" ]; then url="${IE_URL}"; fi
+            if curl -fsL --retry 3 -o "data/permits-issued-to-companies-${yr}.xlsx" "$url"; then args+=(--ie "data/permits-issued-to-companies-${yr}.xlsx"); else echo "::warning::Ireland permits file for ${yr} not found at ${url}"; fi
+          done
           if [ ${#args[@]} -eq 0 ]; then echo "No URLs configured; nothing to do."; exit 0; fi
           python -m my_career_agent_jobs.uk_ca_sponsors "${args[@]}"

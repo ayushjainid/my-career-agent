@@ -3,6 +3,7 @@
 // the ESCO skills taxonomy (https://esco.ec.europa.eu) into the same shape.
 
 import type { JobRequirements, Seniority } from "./types.js";
+import { detectLanguage } from "./postingLanguage.js";
 
 export interface SkillEntry {
   canonical: string;
@@ -33,7 +34,7 @@ export const STARTER_SKILLS: SkillEntry[] = [
   { canonical: "gcp", aliases: ["google cloud"] },
   { canonical: "azure" },
   { canonical: "terraform" },
-  { canonical: "machine learning", aliases: ["ml"] },
+  { canonical: "machine learning", aliases: ["ml", "apprendimento automatico"] },
   { canonical: "deep learning" },
   { canonical: "pytorch" },
   { canonical: "tensorflow" },
@@ -45,6 +46,22 @@ export const STARTER_SKILLS: SkillEntry[] = [
   { canonical: "distributed systems" },
   { canonical: "system design" },
   { canonical: "ci/cd" },
+  { canonical: "kotlin" },
+  { canonical: "scala" },
+  { canonical: "swift", exact: ["Swift"], matchCanonical: false },
+  { canonical: "php" },
+  { canonical: "ruby", aliases: ["ruby on rails", "rails"] },
+  { canonical: "kafka", aliases: ["apache kafka"] },
+  { canonical: "graphql" },
+  { canonical: "grpc" },
+  { canonical: "spring", aliases: ["spring boot"], exact: ["Spring"], matchCanonical: false },
+  { canonical: "django" },
+  { canonical: "redis" },
+  { canonical: "mongodb", aliases: ["mongo"] },
+  { canonical: "elasticsearch", aliases: ["opensearch"] },
+  { canonical: "snowflake", exact: ["Snowflake"], matchCanonical: false },
+  { canonical: "dbt", exact: ["dbt", "DBT"], matchCanonical: false },
+  { canonical: "microservices", aliases: ["microservizi", "micro-services"] },
   // Product, design, marketing, sales
   { canonical: "product management", aliases: ["product manager"] },
   { canonical: "roadmapping", aliases: ["roadmap", "roadmaps"] },
@@ -128,12 +145,24 @@ export function findSkills(text: string, compiled: CompiledSkill[] = DEFAULT_COM
   return [...found];
 }
 
-const MUST_HEADING =
-  /^(?:#+\s*)?(requirements|qualifications|minimum qualifications|basic qualifications|what you(?:'|’)ll need|what we(?:'|’)re looking for|you have|must[- ]haves?|required skills|about you)\b/i;
-const NICE_HEADING =
-  /^(?:#+\s*)?(nice[- ]to[- ]haves?|preferred(?: qualifications)?|bonus(?: points)?|pluses|desired(?: skills)?|it(?:'|’)s a plus)\b/i;
-const OTHER_HEADING =
-  /^(?:#+\s*)?(responsibilities|what you(?:'|’)ll do|about (?:the )?(?:role|team|us|company)|benefits|perks|compensation|our values|why join)\b/i;
+// Headings end at punctuation, a space or the line's end: \b doesn't work after accented letters.
+const END = String.raw`(?=[\s:.,!?()–—-]|$)`;
+const MUST_HEADING = new RegExp(
+  String.raw`^(?:#+\s*)?(requirements|qualifications|minimum qualifications|basic qualifications|what you(?:'|’)ll need|what we(?:'|’)re looking for|you have|must[- ]haves?|required skills|about you` +
+    // Italian
+    String.raw`|requisiti(?: richiesti| minimi| essenziali| tecnici)?|competenze(?: richieste| tecniche| e requisiti)?|conoscenze(?: richieste| tecniche)?|cosa cerchiamo|chi cerchiamo|il candidato ideale|la persona ideale|profilo ricercato|il tuo profilo|cosa ti serve|cosa porti)` + END,
+  "i",
+);
+const NICE_HEADING = new RegExp(
+  String.raw`^(?:#+\s*)?(nice[- ]to[- ]haves?|preferred(?: qualifications)?|bonus(?: points)?|pluses|desired(?: skills)?|it(?:'|’)s a plus` +
+    String.raw`|gradit[oaie](?: anche)?|requisiti preferenziali|titoli preferenziali|costituisc(?:e|ono) titolo preferenziale|(?:sar[aà]|saranno) considerat[oaie] (?:un )?plus|plus|punti bonus)` + END,
+  "i",
+);
+const OTHER_HEADING = new RegExp(
+  String.raw`^(?:#+\s*)?(responsibilities|what you(?:'|’)ll do|about (?:the )?(?:role|team|us|company)|benefits|perks|compensation|our values|why join` +
+    String.raw`|responsabilit[aà]|mansioni|attivit[aà]|principali attivit[aà]|cosa farai|di cosa ti occuperai|il ruolo|chi siamo|l'azienda|la nostra azienda|offriamo|cosa offriamo|perch[eé] unirti|benefit)` + END,
+  "i",
+);
 
 type Section = "must" | "nice" | "other" | "none";
 
@@ -152,14 +181,14 @@ function sectionise(text: string): Array<{ section: Section; line: string }> {
   return out;
 }
 
-const YEARS = /(\d{1,2})\s*\+?\s*(?:(?:-|–|to)\s*\d{1,2}\s*)?(?:\+\s*)?years?/i;
+const YEARS = /(\d{1,2})\s*\+?\s*(?:(?:-|–|to|a)\s*\d{1,2}\s*)?(?:\+\s*)?(?:years?|anni|anno)\b/i;
 
 export function inferSeniorityFromTitle(title: string): Seniority {
   const t = title.toLowerCase();
-  if (/\b(chief|vp|vice president|director|head of)\b/.test(t)) return "executive";
-  if (/\b(staff|principal|lead|manager)\b/.test(t)) return "lead";
-  if (/\b(senior|sr\.?)\b/.test(t)) return "senior";
-  if (/\b(intern|internship|graduate|new grad|junior|jr\.?|entry|associate|apprentice)\b/.test(t))
+  if (/\b(chief|vp|vice president|director|head of|direttore|direttrice)\b/.test(t)) return "executive";
+  if (/\b(staff|principal|lead|manager|responsabile|team leader)\b/.test(t)) return "lead";
+  if (/\b(senior|sr\.?|esperto|esperta)\b/.test(t)) return "senior";
+  if (/\b(intern|internship|graduate|new grad|junior|jr\.?|entry|associate|apprentice|stage|stagista|tirocinio|tirocinante|neolaureat[oa])\b/.test(t))
     return "entry";
   return "mid";
 }
@@ -169,12 +198,22 @@ const NEGATIVE_SPONSORSHIP = [
   /\bwithout (?:the need for |requiring )?(?:current or future )?(?:visa |employer |immigration )?sponsorship\b/i,
   /\bno (?:visa |immigration )?sponsorship\b/i,
   /\bsponsorship (?:is )?not (?:available|offered|provided)\b/i,
+  // Europe: the right to work is required up front.
+  /\bmust (?:already )?(?:have|hold) (?:the |a )?(?:full |valid )?(?:right to work|work(?:ing)? permit|stamp 4)(?: in| for)? (?:ireland|italy|the eu|the eea|europe|the uk)\b/i,
+  /\b(?:eu|eea) (?:citizenship|work permit|right to work) (?:is )?(?:required|mandatory)\b/i,
+  /\bnon (?:offriamo|forniamo|prevediamo|è prevista|e prevista) (?:la )?(?:sponsorizzazione|sponsorship|supporto per il visto)\b/i,
+  /(?:^|[\s(])(?:è|e) richiest[oa] (?:il |un |la )?(?:regolare )?(?:permesso di (?:lavoro|soggiorno)|cittadinanza (?:italiana|europea|ue))\b/i,
 ];
 const POSITIVE_SPONSORSHIP = [
   /\bvisa sponsorship (?:is )?(?:available|offered|provided)\b/i,
   /\bwe (?:will|can|do) sponsor\b/i,
   /\bsponsorship (?:is )?(?:available|offered|provided)\b/i,
   /\bopen to sponsoring\b/i,
+  /\b(?:critical skills|general) employment permit\b/i,
+  /\b(?:we|can) (?:support|sponsor) (?:an? )?(?:employment|work) permits?\b/i,
+  /\b(?:eu )?blue card (?:support|sponsorship)\b/i,
+  /\b(?:sponsorizzazione|supporto) (?:per il |del )?visto\b/i,
+  /\bcarta blu\b/i,
 ];
 
 export function sponsorshipSignal(text: string): JobRequirements["sponsorshipSignal"] {
@@ -215,5 +254,6 @@ export function extractRequirements(
     minYears,
     seniority: inferSeniorityFromTitle(title),
     sponsorshipSignal: sponsorshipSignal(description),
+    postingLanguage: detectLanguage(`${title}\n${description}`),
   };
 }

@@ -35,6 +35,8 @@ export interface JobRequirements {
   minYears: number | null;
   seniority: Seniority | null;
   sponsorshipSignal: "positive" | "negative" | "none";
+  /** The language the posting is written in; Italian postings get Italian applications. Absent on older rows. */
+  postingLanguage?: "en" | "it" | "other";
 }
 
 /** A verified entry from the user's fact bank. */
@@ -48,6 +50,10 @@ export interface Fact {
   verified: boolean;
   /** Employer, school or issuer, when the fact belongs to one. */
   org?: string | null;
+  /** The language `text` is written in. Defaults to English. */
+  lang?: "en" | "it";
+  /** The person's own wording in other languages: { it: "..." }. */
+  translations?: Partial<Record<"en" | "it", string>>;
 }
 
 export interface Profile {

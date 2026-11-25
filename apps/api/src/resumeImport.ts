@@ -68,7 +68,7 @@ export function factsFrom(b: Obj): FactRow[] {
     if (t) facts.push({ kind: "achievement", text: t, org: null, location: null, skills: [], startDate: null, endDate: null });
   }
   const skills = [...new Set(arr(b.skills, 150).map((x) => s(x, 60)).filter((x): x is string => !!x))];
-  if (skills.length) facts.push({ kind: "skill", text: `Skills: ${skills.join(", ")}`, org: null, location: null, skills, startDate: null, endDate: null });
+  if (skills.length) facts.push({ kind: "skill", text: `${b.language === "it" ? "Competenze" : "Skills"}: ${skills.join(", ")}`, org: null, location: null, skills, startDate: null, endDate: null });
   // Skills as the scorer knows them: canonical names, and the ones each statement mentions.
   for (const f of facts) {
     const given = f.skills.map((x) => canonicalizeSkill(x));
@@ -93,6 +93,8 @@ resumeImport.post("/resume/import", async (c) => {
     .map((l) => ({ language: s(l.language, 40)?.toLowerCase() ?? "", level: s(l.level, 6) ?? "" }))
     .filter((l) => l.language && LEVELS.has(l.level));
   const replace = b.replace === true;
+  // An Italian CV's facts are saved as Italian; they're used as-is in Italian applications.
+  const lang = b.language === "it" ? "it" : "en";
   const home = inferCountry(s(contact.location, 120));
   const uid = c.get("userId");
   const counts = { facts: facts.length, roles: facts.filter((f) => f.kind === "role").length, answers: answers.length, languages: languages.length };
@@ -101,10 +103,10 @@ resumeImport.post("/resume/import", async (c) => {
     stmt(`INSERT INTO mca.app_user (user_id, home_country) VALUES ($1, $2) ON CONFLICT (user_id) DO UPDATE SET home_country = coalesce(mca.app_user.home_country, EXCLUDED.home_country)`, uid, home),
     ...(replace ? [stmt(`DELETE FROM mca.fact WHERE source = 'resume'`)] : []),
     stmt(
-      `INSERT INTO mca.fact (user_id, kind, text, org, location, skills, start_date, end_date, verified, source)
-       SELECT $1, x.kind, x.text, x.org, x.location, x.skills, x."startDate", x."endDate", true, 'resume'
+      `INSERT INTO mca.fact (user_id, kind, text, org, location, skills, start_date, end_date, verified, source, lang)
+       SELECT $1, x.kind, x.text, x.org, x.location, x.skills, x."startDate", x."endDate", true, 'resume', $3
        FROM jsonb_to_recordset($2::jsonb) AS x(kind text, text text, org text, location text, skills text[], "startDate" date, "endDate" date)`,
-      uid, JSON.stringify(facts),
+      uid, JSON.stringify(facts), lang,
     ),
     // Contact details fill empty answers only; anything the person typed stays.
     stmt(

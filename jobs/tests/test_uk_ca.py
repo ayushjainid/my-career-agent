@@ -42,3 +42,38 @@ def test_wrong_file_fails_loudly(tmp_path: Path):
     f.write_text("a,b\n1,2\n")
     with pytest.raises(LayoutError):
         summarise_uk(f)
+
+
+def test_ireland_permits_by_employer(tmp_path):
+    from openpyxl import Workbook
+    from my_career_agent_jobs.uk_ca_sponsors import summarise_ie
+
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["Employment Permits issued to companies 2026"])
+    ws.append([])
+    ws.append(["Employer Name", "Jan", "Feb", "Mar", "Total"])
+    ws.append(["Stripe Payments Europe Limited", 3, 2, 4, 9])
+    ws.append(["Intercom R&D Unlimited Company", 1, 0, 2, 3])
+    ws.append(["STRIPE PAYMENTS EUROPE LTD", 0, 1, 0, 1])
+    ws.append(["Small Cafe Ltd", 0, 0, 0, 0])
+    ws.append(["Grand Total", 4, 3, 6, 13])
+    path = tmp_path / "permits-issued-to-companies-2026.xlsx"
+    wb.save(path)
+    rows = {r["employer_norm"]: r for r in summarise_ie(path)}
+    stripe = next(r for n, r in rows.items() if n.startswith("STRIPE"))
+    assert stripe["filings"] == 10 and stripe["country"] == "IE" and stripe["source"] == "dete_permits"
+    assert stripe["period_end"] == "2026-12-31"
+    assert len(rows) == 2  # zero-permit rows and the total row are skipped
+
+
+def test_ireland_months_only(tmp_path):
+    from openpyxl import Workbook
+    from my_career_agent_jobs.uk_ca_sponsors import summarise_ie
+
+    wb = Workbook()
+    wb.active.append(["Company Name", "January", "February"])
+    wb.active.append(["Tines Security Services Limited", 2, 3])
+    path = tmp_path / "companies.xlsx"
+    wb.save(path)
+    assert summarise_ie(path)[0]["filings"] == 5

@@ -6,7 +6,7 @@ import { combineGates, eligibilityGate, languageGate, type DeclaredLanguage, typ
 import { planToday } from "./planner.js";
 import { rankCandidates, type CompanyPreference, type Excluded } from "./ranking.js";
 import { scoreResume } from "./scoring.js";
-import { sponsorshipFor, type CountryEvidence } from "./countries.js";
+import { permitPayCheck, sponsorshipFor, type CountryEvidence } from "./countries.js";
 import type { SponsorThresholds } from "./sponsorship.js";
 import type { JobRequirements, Profile, Tier } from "./types.js";
 
@@ -136,6 +136,12 @@ export function buildDailyQueue(input: QueueInput): QueueResult {
 
     const needsSponsor = auth?.status === "needs_sponsorship";
     const sponsorship = needsSponsor ? sponsorshipFor(country, j.sponsor, auth.thresholds, j.requirements.sponsorshipSignal, input.today) : null;
+    // Ireland and Italy set a minimum salary for the permit: say so when the posted pay can't reach it.
+    if (needsSponsor) {
+      const pay = permitPayCheck(country, { min: null, max: j.payMax, currency: j.payCurrency, period: "year" });
+      if (pay.status === "below" && pay.minimum)
+        flags.push(`Posted pay tops out under the ${pay.minimum.permit} minimum of €${pay.minimum.annual.toLocaleString("en-IE")} a year.`);
+    }
 
     candidates.push({
       jobId: j.jobId,

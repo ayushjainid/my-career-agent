@@ -40,7 +40,7 @@ export function toRecord(job: NormalizedJob) {
     posted_at: job.postedAt,
     apply_url: job.applyUrl,
     description_text: job.descriptionText.slice(0, 50_000),
-    requirements: { mustHave: req.mustHave, niceToHave: req.niceToHave, minYears: req.minYears, seniority: req.seniority, sponsorshipSignal: req.sponsorshipSignal, extractor: "det-1" },
+    requirements: { mustHave: req.mustHave, niceToHave: req.niceToHave, minYears: req.minYears, seniority: req.seniority, sponsorshipSignal: req.sponsorshipSignal, postingLanguage: req.postingLanguage, extractor: "det-1" },
     sponsorship_text_signal: req.sponsorshipSignal,
     integrity: job.integrity ? compactIntegrity(job.integrity) : null,
   };

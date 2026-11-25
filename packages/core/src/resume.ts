@@ -27,7 +27,16 @@ export interface ResumeRole {
   bullets: string[];
 }
 
+export type ResumeLocale = "en" | "it";
+
 export interface ResumeDoc {
+  locale: ResumeLocale;
+  /** Section names in the resume's language. */
+  headings: Record<"experience" | "projects" | "education" | "certifications" | "skills" | "languages", string>;
+  /** A closing line some countries expect (Italy: consent to process personal data). */
+  footer: string | null;
+  /** Lines shown in the fact's original language because no translation was saved. */
+  untranslated: number;
   contact: ResumeContact;
   headline: string | null;
   experience: ResumeRole[];
@@ -42,18 +51,50 @@ export interface ResumeDoc {
   omitted: number;
 }
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const month = (iso: string | null | undefined) => {
+const LOCALE = {
+  en: {
+    months: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+    present: "Present",
+    headings: { experience: "Experience", projects: "Projects", education: "Education", certifications: "Certifications", skills: "Skills", languages: "Languages" },
+    footer: null,
+    native: "native",
+  },
+  it: {
+    months: ["Gen", "Feb", "Mar", "Apr", "Mag", "Giu", "Lug", "Ago", "Set", "Ott", "Nov", "Dic"],
+    present: "oggi",
+    headings: { experience: "Esperienza professionale", projects: "Progetti", education: "Istruzione e formazione", certifications: "Certificazioni", skills: "Competenze", languages: "Lingue" },
+    // The consent line Italian employers expect at the foot of a CV.
+    footer: "Autorizzo il trattamento dei dati personali contenuti nel mio curriculum vitae ai sensi del D.Lgs. 196/2003 e del Regolamento UE 2016/679 (GDPR).",
+    native: "madrelingua",
+  },
+} as const;
+
+/** Language names as an Italian CV writes them. Others keep their English name. */
+const LANGUAGE_NAMES_IT: Record<string, string> = {
+  english: "Inglese", italian: "Italiano", french: "Francese", german: "Tedesco", spanish: "Spagnolo", portuguese: "Portoghese",
+  dutch: "Olandese", russian: "Russo", ukrainian: "Ucraino", polish: "Polacco", romanian: "Rumeno", greek: "Greco", turkish: "Turco",
+  arabic: "Arabo", hebrew: "Ebraico", persian: "Persiano", hindi: "Hindi", urdu: "Urdu", bengali: "Bengalese", tamil: "Tamil",
+  chinese: "Cinese", "mandarin chinese": "Cinese mandarino", japanese: "Giapponese", korean: "Coreano", vietnamese: "Vietnamita",
+  swedish: "Svedese", norwegian: "Norvegese", danish: "Danese", finnish: "Finlandese", czech: "Ceco", hungarian: "Ungherese", irish: "Irlandese",
+};
+
+const month = (iso: string | null | undefined, locale: ResumeLocale = "en") => {
   if (!iso) return null;
   const [y, m] = iso.split("-");
   const mi = Number(m) - 1;
-  return y ? (mi >= 0 && mi < 12 ? `${MONTHS[mi]} ${y}` : y) : null;
+  return y ? (mi >= 0 && mi < 12 ? `${LOCALE[locale].months[mi]} ${y}` : y) : null;
 };
 /** ASCII hyphen on purpose: some ATS parsers drop date ranges joined by an en or em dash. */
-export function dateRange(start?: string | null, end?: string | null): string | null {
-  const s = month(start);
+export function dateRange(start?: string | null, end?: string | null, locale: ResumeLocale = "en"): string | null {
+  const s = month(start, locale);
   if (!s) return null;
-  return `${s} - ${end ? month(end) : "Present"}`;
+  return `${s} - ${end ? month(end, locale) : LOCALE[locale].present}`;
+}
+
+/** A fact's text in one language: its own when written in it, else the saved translation, else null. */
+export function textIn(f: Pick<Fact, "text" | "lang" | "translations">, locale: ResumeLocale): string | null {
+  if ((f.lang ?? "en") === locale) return f.text;
+  return f.translations?.[locale]?.trim() || null;
 }
 
 const overlaps = (a: Fact, b: Fact) => {
@@ -72,10 +113,18 @@ function relevance(f: Fact, keywords: string[]): number {
 export interface BuildResumeOptions {
   maxBulletsPerRole?: number; // default 5
   maxSkills?: number; // default 24
+  /** Language of the resume. Facts use their translation when one is saved, else their original text. */
+  locale?: ResumeLocale;
+  /** Spoken languages and levels, from the person's profile. */
+  languages?: Array<{ language: string; level: string }>;
 }
 
 export function buildResume(contact: ResumeContact, facts: Fact[], target: ResumeTarget, opts: BuildResumeOptions = {}): ResumeDoc {
   const maxBullets = opts.maxBulletsPerRole ?? 5;
+  const locale: ResumeLocale = opts.locale ?? "en";
+  let untranslated = 0;
+  const say = (f: Fact) => { const t = textIn(f, locale); if (t !== null) return t; untranslated++; return f.text; };
+  const range = (a?: string | null, b?: string | null) => dateRange(a, b, locale);
   const keywords = target.keywords.map((k) => canonicalizeSkill(k));
   const verified = facts.filter((f) => f.verified);
   const used = new Set<string>();
@@ -100,14 +149,14 @@ export function buildResume(contact: ResumeContact, facts: Fact[], target: Resum
     const kept = mine.slice(0, maxBullets);
     omitted += mine.length - kept.length;
     for (const { a } of kept) used.add(a.id);
-    return { heading: r.text, org: r.org ?? null, dates: dateRange(r.startDate, r.endDate), bullets: kept.map(({ a }) => a.text) };
+    return { heading: say(r), org: r.org ?? null, dates: range(r.startDate, r.endDate), bullets: kept.map(({ a }) => say(a)) };
   });
   omitted += achievements.filter((a) => !owner.has(a.id)).length;
 
   const simple = (k: Fact["kind"]): ResumeRole[] =>
     of(k).map((f) => {
       used.add(f.id);
-      return { heading: f.text, org: f.org ?? null, dates: dateRange(f.startDate, f.endDate), bullets: [] };
+      return { heading: say(f), org: f.org ?? null, dates: range(f.startDate, f.endDate), bullets: [] };
     });
   const projects = of("project")
     .map((f) => ({ f, score: relevance(f, keywords) }))
@@ -115,7 +164,7 @@ export function buildResume(contact: ResumeContact, facts: Fact[], target: Resum
     .slice(0, 4)
     .map(({ f }) => {
       used.add(f.id);
-      return { heading: f.text, org: f.org ?? null, dates: dateRange(f.startDate, f.endDate), bullets: [] };
+      return { heading: say(f), org: f.org ?? null, dates: range(f.startDate, f.endDate), bullets: [] };
     });
 
   // Skills: the target's keywords the person verifiably has, first, then the rest by frequency.
@@ -132,14 +181,22 @@ export function buildResume(contact: ResumeContact, facts: Fact[], target: Resum
 
   const certifications = of("certification").map((f) => {
     used.add(f.id);
-    return [f.text, f.org, month(f.startDate)].filter(Boolean).join(", ");
+    return [say(f), f.org, month(f.startDate ?? f.endDate, locale)].filter(Boolean).join(", ");
   });
-  const languages = of("language").map((f) => {
+  const spoken = (opts.languages ?? []).map((l) => {
+    const name = locale === "it" ? LANGUAGE_NAMES_IT[l.language.toLowerCase()] ?? cap(l.language) : cap(l.language);
+    return `${name} (${l.level === "native" ? LOCALE[locale].native : l.level})`;
+  });
+  const languages = [...spoken, ...of("language").map((f) => {
     used.add(f.id);
-    return f.text;
-  });
+    return say(f);
+  })];
 
   return {
+    locale,
+    headings: { ...LOCALE[locale].headings },
+    footer: LOCALE[locale].footer,
+    untranslated,
     contact,
     headline: target.title,
     experience,
@@ -152,6 +209,8 @@ export function buildResume(contact: ResumeContact, facts: Fact[], target: Resum
     omitted,
   };
 }
+
+const cap = (s: string) => s.replace(/\b\p{L}/gu, (c) => c.toUpperCase());
 
 /** The resume as the lines a reader (or an ATS) sees, in order. */
 export function resumeLines(doc: ResumeDoc): string[] {
@@ -166,12 +225,14 @@ export function resumeLines(doc: ResumeDoc): string[] {
       for (const b of r.bullets) lines.push(`- ${b}`);
     }
   };
-  section("Experience", doc.experience);
-  section("Projects", doc.projects);
-  section("Education", doc.education);
-  if (doc.certifications.length) lines.push("", "CERTIFICATIONS", ...doc.certifications);
-  if (doc.skills.length) lines.push("", "SKILLS", doc.skills.join(", "));
-  if (doc.languages.length) lines.push("", "LANGUAGES", doc.languages.join(", "));
+  const h = doc.headings;
+  section(h.experience, doc.experience);
+  section(h.projects, doc.projects);
+  section(h.education, doc.education);
+  if (doc.certifications.length) lines.push("", h.certifications.toUpperCase(), ...doc.certifications);
+  if (doc.skills.length) lines.push("", h.skills.toUpperCase(), doc.skills.join(", "));
+  if (doc.languages.length) lines.push("", h.languages.toUpperCase(), doc.languages.join(", "));
+  if (doc.footer) lines.push("", doc.footer);
   return lines;
 }
 

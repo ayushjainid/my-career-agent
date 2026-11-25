@@ -50,7 +50,7 @@ export async function loadQueueInput(db: TenantDb, userId: string, today: Date):
               s.filings, s.perm_certified, s.perm_denied, s.last_filing, s.rating
        FROM mca.job j
        LEFT JOIN LATERAL (
-         SELECT sum(filings) FILTER (WHERE source IN ('dol_lca', 'esdc_lmia')
+         SELECT sum(filings) FILTER (WHERE source IN ('dol_lca', 'esdc_lmia', 'dete_permits')
                                        OR (source = 'ukvi_register' AND coalesce(extra->>'route', '') ILIKE 'skilled worker%')) AS filings,
                 sum(certified) FILTER (WHERE source = 'dol_perm') AS perm_certified,
                 sum(denied) FILTER (WHERE source = 'dol_perm') AS perm_denied,

@@ -478,3 +478,7 @@ footer.foot { max-width: 1120px; margin: 0 auto; padding: 0 var(--s4) var(--s6);
 footer.foot a { color: var(--quiet); }
 .icons { position: absolute; width: 0; height: 0; overflow: hidden; }
 .vh { position: absolute !important; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* Answer editor: question, kind and limit share a row on wide screens and stack on phones. */
+.q-grid { grid-template-columns: minmax(0, 2fr) minmax(140px, 1fr) 130px; }
+@media (max-width: 640px) { .q-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .q-grid > :first-child { grid-column: 1 / -1; } }

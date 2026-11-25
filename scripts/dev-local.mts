@@ -46,6 +46,24 @@ for (const [i, [name, desc]] of demo.entries()) {
      VALUES ($1, 'US', 'dol_lca', $2, upper($2), 40, 0, '2026-09-30'), ($1, 'US', 'dol_perm', $2, upper($2), 0, 8, '2026-09-30')`,
     [rows[0]!.id, name]);
 }
+// One Dublin job (an employer with Irish permits on record) and one Milan job posted in Italian.
+const euro: Array<[string, string, string, string, number, number]> = [
+  ["Liffey Data", "IE", "Dublin, Ireland", "Requirements\n- 5+ years of Python\n- SQL\n- AWS\nWe support Critical Skills Employment Permit applications.", 85000, 105000],
+  ["Navigli Pay", "IT", "Milano, Italia", "Chi siamo\nSiamo una fintech milanese e cresciamo velocemente.\n\nRequisiti\n- Almeno 5 anni di esperienza con Python\n- Ottima conoscenza di SQL e AWS\n- Italiano fluente\n\nCosa offriamo\n- RAL 55.000 - 70.000 €\n- Modalità di lavoro ibrida, sede a Milano", 55000, 70000],
+];
+for (const [i, [name, country, place, desc, lo, hi]] of euro.entries()) {
+  const { rows } = await pg.query<{ id: string }>(
+    "INSERT INTO mca.company (name, name_norm, ats_vendor, ats_board) VALUES ($1, upper($1), 'greenhouse', lower(replace($1, ' ', ''))) RETURNING id", [name]);
+  await pg.query(
+    `INSERT INTO mca.job (company_id, ats_vendor, ats_job_id, title, country, location_text, remote_type, description_text, apply_url,
+       posted_at, status, pay_min, pay_max, pay_currency, integrity)
+     VALUES ($1, 'greenhouse', $2, 'Senior Data Engineer', $3, $4, 'hybrid', $5, $6, now() - interval '1 day', 'open', $7, $8, 'EUR', '{"level":"clean","verdict":"clean"}')`,
+    [rows[0]!.id, `eu-${i + 1}`, country, place, desc, `https://boards.greenhouse.io/eu${i + 1}/jobs/1`, lo, hi]);
+  if (country === "IE")
+    await pg.query(
+      `INSERT INTO mca.sponsor_record (company_id, country, source, employer_name, employer_norm, filings, certified, period_end)
+       VALUES ($1, 'IE', 'dete_permits', $2, upper($2), 14, 14, '2026-10-31')`, [rows[0]!.id, name]);
+}
 
 const db: TenantDb = {
   asUser: (userId, stmts) =>

@@ -8,8 +8,9 @@ import { score } from "./score.js";
 const fixture = (f: string) => new Uint8Array(readFileSync(new URL(`./fixtures/${f}`, import.meta.url)));
 const expected = (k: string) => JSON.parse(readFileSync(new URL(`./expected/${k}.json`, import.meta.url), "utf8"));
 
-// Every format of one person must give the same facts. c and d were written after tuning on a and b.
-const FILES = ["a-jake.tex", "a-jake.pdf", "a-classic.docx", "a-classic.pdf", "b-moderncv.tex", "b-moderncv.pdf", "b-twocol.docx", "b-twocol.pdf", "c-header.docx", "c-header.pdf", "d-awesome.tex", "d-left-dates.pdf"];
+// Every format of one person must give the same facts. c and d were written after tuning on a and b;
+// e is an Italian CV (Italian headings, months, levels and a GDPR consent line).
+const FILES = ["a-jake.tex", "a-jake.pdf", "a-classic.docx", "a-classic.pdf", "b-moderncv.tex", "b-moderncv.pdf", "b-twocol.docx", "b-twocol.pdf", "c-header.docx", "c-header.pdf", "d-awesome.tex", "d-left-dates.pdf", "e-italiano.docx", "e-italiano.pdf"];
 
 describe("extraction precision on fixture resumes", () => {
   for (const f of FILES) {
@@ -17,6 +18,7 @@ describe("extraction precision on fixture resumes", () => {
       const got = await importResume(f, fixture(f), nodeReaders);
       const s = score(got, expected(f[0]!));
       expect(s.misses).toEqual([]);
+      expect(got.language).toBe(f.startsWith("e-") ? "it" : "en");
     }, 30000);
   }
 });

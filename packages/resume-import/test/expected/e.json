@@ -1,0 +1,14 @@
+{
+  "contact": { "name": "Giulia Romano", "email": "giulia.romano@example.it", "phone": "+39 333 123 4567", "location": "Milano, Italia", "linkedin": "linkedin.com/in/giuliaromano" },
+  "experience": [
+    { "title": "Senior Software Engineer", "org": "Contoso Pagamenti S.p.A.", "location": "Milano", "start": "2021-01", "end": null, "current": true,
+      "bullets": ["Ho guidato la migrazione di 40 microservizi a Kubernetes, riducendo i costi del 25%", "Ridotto la latenza dei pagamenti da 800 a 120 ms per 3 milioni di clienti"] },
+    { "title": "Sviluppatrice Backend", "org": "Fabrikam S.r.l.", "location": "Torino", "start": "2017-09", "end": "2020-12", "current": false,
+      "bullets": ["Sviluppato API in Java e Spring utilizzate da 2 milioni di utenti"] }
+  ],
+  "education": [ { "degree": "Laurea magistrale in Ingegneria Informatica", "org": "Politecnico di Milano", "location": null, "start": "2015", "end": "2017" } ],
+  "projects": [],
+  "skills": ["Java", "Kotlin", "Spring", "Kubernetes", "PostgreSQL"],
+  "certifications": [],
+  "languages": [ { "language": "Italian", "level": "native" }, { "language": "English", "level": "C1" }, { "language": "Spanish", "level": "A2" } ]
+}

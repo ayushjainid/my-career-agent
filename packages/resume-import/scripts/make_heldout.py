@@ -160,7 +160,44 @@ def d_pdf():
     c.save()
 
 
+def e_italian():
+    """An Italian CV, as a Milan candidate would write it: Italian headings, months and levels, consent line."""
+    d = Document()
+    s = d.sections[0]
+    s.left_margin = s.right_margin = Inches(0.8)
+    r = d.add_paragraph().add_run("GIULIA ROMANO")
+    r.bold = True
+    r.font.size = Pt(20)
+    d.add_paragraph("Milano, Italia | giulia.romano@example.it | +39 333 123 4567 | linkedin.com/in/giuliaromano")
+    d.add_heading("Profilo", level=2)
+    d.add_paragraph("Ingegnera del software con 7 anni di esperienza su sistemi di pagamento ad alto traffico.")
+    d.add_heading("Esperienza professionale", level=2)
+    p = d.add_paragraph()
+    p.add_run("Senior Software Engineer – Contoso Pagamenti S.p.A.").bold = True
+    d.add_paragraph("Milano | gen 2021 – oggi")
+    d.add_paragraph("Ho guidato la migrazione di 40 microservizi a Kubernetes, riducendo i costi del 25%", style="List Bullet")
+    d.add_paragraph("Ridotto la latenza dei pagamenti da 800 a 120 ms per 3 milioni di clienti", style="List Bullet")
+    p = d.add_paragraph()
+    p.add_run("Sviluppatrice Backend – Fabrikam S.r.l.").bold = True
+    d.add_paragraph("Torino | set 2017 – dic 2020")
+    d.add_paragraph("Sviluppato API in Java e Spring utilizzate da 2 milioni di utenti", style="List Bullet")
+    d.add_heading("Istruzione e formazione", level=2)
+    p = d.add_paragraph()
+    p.add_run("Laurea magistrale in Ingegneria Informatica – Politecnico di Milano").bold = True
+    d.add_paragraph("2015 – 2017")
+    d.add_heading("Competenze", level=2)
+    d.add_paragraph("Java, Kotlin, Spring, Kubernetes, PostgreSQL")
+    d.add_heading("Lingue", level=2)
+    d.add_paragraph("Italiano: madrelingua; Inglese: C1; Spagnolo: base")
+    d.add_paragraph("Autorizzo il trattamento dei dati personali contenuti nel mio curriculum vitae ai sensi del Regolamento UE 2016/679.")
+    d.save(OUT / "e-italiano.docx")
+    with tempfile.TemporaryDirectory() as tmp:
+        subprocess.run(["soffice", "--headless", "--convert-to", "pdf", "--outdir", tmp, str(OUT / "e-italiano.docx")], check=True, capture_output=True)
+        shutil.copy(pathlib.Path(tmp) / "e-italiano.pdf", OUT / "e-italiano.pdf")
+
+
 if __name__ == "__main__":
     c_docx()
     d_pdf()
+    e_italian()
     print("held-out fixtures written")

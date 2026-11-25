@@ -8,13 +8,16 @@ const MONTHS: Record<string, number> = {
   // German, French, Spanish, Dutch, Portuguese short forms that differ from English
   mär: 3, mrz: 3, mai: 5, okt: 10, dez: 12, janv: 1, févr: 2, fevr: 2, avr: 4, juil: 7, juin: 6, août: 8, aout: 8, déc: 12,
   ene: 1, abr: 4, ago: 8, dic: 12, mei: 5, maart: 3, fev: 2, set: 9, out: 10,
+  // Italian
+  gen: 1, gennaio: 1, febbraio: 2, marzo: 3, aprile: 4, mag: 5, maggio: 5, giu: 6, giugno: 6, lug: 7, luglio: 7, agosto: 8,
+  settembre: 9, ott: 10, ottobre: 10, novembre: 11, dicembre: 12,
 };
 const MONTH_RE = Object.keys(MONTHS).sort((a, b) => b.length - a.length).join("|");
-const PRESENT = "present|current|now|today|ongoing|till date|to date|heute|aujourd'hui|actuel|actualidad|presente|atual|nu";
+const PRESENT = "present|current|now|today|ongoing|till date|to date|heute|aujourd'hui|actuel|actualidad|presente|atual|nu|oggi|in corso|attuale|ad oggi";
 
 /** One date: "Mar 2021", "March 2021", "03/2021", "2021-03", "2021", "Summer 2020". */
 const ONE = `(?:(?:${MONTH_RE})\\.?,?\\s+'?\\d{2,4}|\\d{1,2}\\s*[/.]\\s*\\d{4}|\\d{4}\\s*[-/.]\\s*\\d{1,2}(?!\\d)|(?:spring|summer|fall|autumn|winter)\\s+\\d{4}|(?:19|20)\\d{2})`;
-const SEP = `\\s*(?:-{1,3}|–|—|‒|―|~|to|until|bis|à|a|tot|till)\\s*`;
+const SEP = `\\s*(?:-{1,3}|–|—|‒|―|~|to|until|bis|à|a|al|tot|till)\\s*`;
 const RANGE_RE = new RegExp(`(${ONE})(?:${SEP}(${ONE}|${PRESENT}))?`, "i");
 const RANGE_RE_G = new RegExp(RANGE_RE.source, "gi");
 

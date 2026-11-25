@@ -95,6 +95,8 @@ export interface LanguageSkill {
 
 export interface ParsedResume {
   source: Source;
+  /** The language the resume is written in; Italian facts are saved as Italian. */
+  language: "en" | "it";
   contact: Partial<Record<ContactField, string>>;
   summary: string | null;
   experience: Role[];

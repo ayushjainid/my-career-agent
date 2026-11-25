@@ -5,6 +5,7 @@
 // of the API, the tables are reachable only through definer functions, and there is nothing to
 // configure. Passwords and tokens never reach the database; only their hashes do.
 
+import { REQUIRED_BY_COUNTRY } from "@my-career-agent/core";
 import { Hono, type Context } from "hono";
 import type { AppBindings, Env } from "./env.js";
 import { stmt, type TenantDb } from "./lib/tenant.js";
@@ -181,18 +182,22 @@ account.get("/auth/me", async (c) => {
         (SELECT count(*) FROM mca.fact WHERE verified)::int AS facts,
         (SELECT count(*) FROM mca.user_language)::int AS languages,
         (SELECT count(*) FROM mca.answer_bank_entry WHERE question_key IN ('contact.full_name','contact.email'))::int AS contact_answers,
-        (SELECT count(*) FROM mca.answer_bank_entry WHERE question_key LIKE 'us.%')::int AS visa_answers,
+        (SELECT coalesce(array_agg(country), '{}') FROM mca.work_auth) AS countries,
+        (SELECT coalesce(array_agg(question_key), '{}') FROM mca.answer_bank_entry) AS answered,
         (SELECT count(*) FROM mca.contact)::int AS contacts`),
     ]),
   ]).then(([a, b]) => [a[0] ?? [], b[0] ?? []] as const);
   const n = (k: string) => Number(counts?.[k] ?? 0);
+  // Each country applied in has its own work-authorization questions (US, Ireland, Italy).
+  const answered = new Set(((counts?.answered as string[] | null) ?? []).map(String));
+  const visaAnswersDone = ((counts?.countries as string[] | null) ?? []).every((cc) => (REQUIRED_BY_COUNTRY[String(cc)] ?? []).every((k) => answered.has(k)));
   const steps = [
     // The resume comes first: it fills in contact answers, languages and a first target role.
     { id: "facts", label: "Your resume", done: n("facts") >= 3 },
     { id: "work_auth", label: "Work authorization", done: n("work_auth") > 0 },
     { id: "targets", label: "Target roles", done: n("targets") > 0 },
     { id: "languages", label: "Languages", done: n("languages") > 0 },
-    { id: "answers", label: "Essential answers", done: n("contact_answers") >= 2 && (n("work_auth_us") === 0 || n("visa_answers") >= 3) },
+    { id: "answers", label: "Essential answers", done: n("contact_answers") >= 2 && visaAnswersDone },
     { id: "network", label: "LinkedIn connections", done: n("contacts") > 0, optional: true },
   ];
   return c.json({

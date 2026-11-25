@@ -110,8 +110,22 @@ Billing is built but off for the free beta. To turn it on, set `BILLING_ENABLED 
 notice in the app and in `docs/privacy/` is a draft. It needs the controller's name and contact
 details and a legal review before the beta opens widely.
 
-## UK and Canada sponsor data (loop B7)
+## UK, Canada and Ireland sponsor data (loops B7, B8)
 
 Run **UK and Canada sponsor data** with the current register file URLs: the Home Office register of
 licensed sponsors (CSV) and ESDC's positive LMIA employer list. It also runs weekly when the
 `UK_REGISTER_URL` and `CA_LMIA_URL` repository variables are set.
+
+### Ireland (loop B8)
+
+The same workflow (now **UK, Canada and Ireland sponsor data**) downloads DETE's "permits issued to
+companies" spreadsheets for this year and last from enterprise.gov.ie. If DETE renames the file, set
+the `IE_URL` repository variable to the new link. Italy has no public sponsor list, so there is nothing
+to load: Milan jobs are judged by what the posting says.
+
+Permit pay minimums live in `PERMIT_MINIMUMS` in `packages/core/src/countries.ts`, each with the date
+it took effect. Check them when Ireland or Italy announce new thresholds (Ireland usually reviews in
+the spring; Italy's Blue Card figure is set by decree and the stored one is approximate).
+
+To get Dublin and Milan jobs into the queue, add companies hiring there to `jobs/companies.csv` (see `jobs/companies.example.csv`) with
+their Greenhouse, Lever or Ashby board, then run the company seed.

@@ -7,15 +7,15 @@ import type { CEFR, Certification, ContactField, Education, EntryHint, Extracted
 type SectionKind = "experience" | "education" | "skills" | "projects" | "certifications" | "languages" | "summary" | "contact" | "other";
 
 const SECTION_WORDS: Array<[SectionKind, string[]]> = [
-  ["experience", ["experience", "work experience", "professional experience", "relevant experience", "employment", "employment history", "work history", "career history", "career", "professional background", "internships", "internship experience", "work", "berufserfahrung", "experience professionnelle", "experiences professionnelles", "expérience professionnelle", "expériences professionnelles", "experiencia", "experiencia laboral", "experiencia profesional", "werkervaring", "experiência", "experiência profissional"]],
-  ["education", ["education", "academic background", "academics", "academic qualifications", "qualifications", "education and training", "education & training", "educational background", "ausbildung", "bildung", "formation", "formations", "educación", "formación", "opleiding", "educação", "formação"]],
-  ["skills", ["skills", "technical skills", "core skills", "key skills", "skills & tools", "skills and tools", "skills & technologies", "skills and technologies", "competencies", "core competencies", "technologies", "tech stack", "tools", "tools & technologies", "expertise", "areas of expertise", "technical expertise", "programming", "kenntnisse", "fähigkeiten", "compétences", "habilidades", "vaardigheden", "competências", "skills summary"]],
-  ["projects", ["projects", "personal projects", "selected projects", "side projects", "key projects", "academic projects", "open source", "open-source", "open source contributions", "projekte", "projets", "proyectos", "projecten", "projetos"]],
-  ["certifications", ["certifications", "certificates", "certification", "licenses & certifications", "licenses and certifications", "licences & certifications", "licenses", "licences", "courses", "coursework", "training", "certifications & training", "zertifikate", "zertifizierungen", "certificaciones"]],
-  ["languages", ["languages", "language skills", "language", "spoken languages", "sprachen", "sprachkenntnisse", "langues", "idiomas", "talen", "línguas"]],
-  ["summary", ["summary", "profile", "professional summary", "career summary", "about", "about me", "objective", "career objective", "personal statement", "overview", "profil", "perfil", "über mich", "kurzprofil", "profiel"]],
-  ["contact", ["contact", "contact information", "contact info", "contact details", "personal details", "personal information", "details", "kontakt", "contacto"]],
-  ["other", ["awards", "honors", "honours", "awards & honors", "awards and honors", "achievements", "publications", "papers", "research", "volunteer", "volunteering", "volunteer experience", "leadership", "leadership experience", "activities", "extracurricular activities", "extracurriculars", "interests", "hobbies", "references", "patents", "talks", "conferences", "memberships", "affiliations", "additional information"]],
+  ["experience", ["experience", "work experience", "professional experience", "relevant experience", "employment", "employment history", "work history", "career history", "career", "professional background", "internships", "internship experience", "work", "berufserfahrung", "experience professionnelle", "experiences professionnelles", "expérience professionnelle", "expériences professionnelles", "experiencia", "experiencia laboral", "experiencia profesional", "werkervaring", "experiência", "experiência profissional", "esperienza", "esperienze", "esperienza professionale", "esperienze professionali", "esperienza lavorativa", "esperienze lavorative", "percorso professionale"]],
+  ["education", ["education", "academic background", "academics", "academic qualifications", "qualifications", "education and training", "education & training", "educational background", "ausbildung", "bildung", "formation", "formations", "educación", "formación", "opleiding", "educação", "formação", "istruzione", "formazione", "istruzione e formazione", "titoli di studio", "percorso di studi"]],
+  ["skills", ["skills", "technical skills", "core skills", "key skills", "skills & tools", "skills and tools", "skills & technologies", "skills and technologies", "competencies", "core competencies", "technologies", "tech stack", "tools", "tools & technologies", "expertise", "areas of expertise", "technical expertise", "programming", "kenntnisse", "fähigkeiten", "compétences", "habilidades", "vaardigheden", "competências", "skills summary", "competenze", "competenze tecniche", "competenze informatiche", "conoscenze informatiche", "capacità e competenze", "competenze professionali"]],
+  ["projects", ["projects", "personal projects", "selected projects", "side projects", "key projects", "academic projects", "open source", "open-source", "open source contributions", "projekte", "projets", "proyectos", "projecten", "projetos", "progetti", "progetti personali"]],
+  ["certifications", ["certifications", "certificates", "certification", "licenses & certifications", "licenses and certifications", "licences & certifications", "licenses", "licences", "courses", "coursework", "training", "certifications & training", "zertifikate", "zertifizierungen", "certificaciones", "certificazioni", "corsi", "corsi e certificazioni", "attestati"]],
+  ["languages", ["languages", "language skills", "language", "spoken languages", "sprachen", "sprachkenntnisse", "langues", "idiomas", "talen", "línguas", "lingue", "lingue straniere", "conoscenze linguistiche", "competenze linguistiche"]],
+  ["summary", ["summary", "profile", "professional summary", "career summary", "about", "about me", "objective", "career objective", "personal statement", "overview", "profil", "perfil", "über mich", "kurzprofil", "profiel", "profilo", "profilo professionale", "chi sono", "sommario", "obiettivo"]],
+  ["contact", ["contact", "contact information", "contact info", "contact details", "personal details", "personal information", "details", "kontakt", "contacto", "contatti", "dati personali", "informazioni personali"]],
+  ["other", ["awards", "honors", "honours", "awards & honors", "awards and honors", "achievements", "publications", "papers", "research", "volunteer", "volunteering", "volunteer experience", "leadership", "leadership experience", "activities", "extracurricular activities", "extracurriculars", "interests", "hobbies", "references", "patents", "talks", "conferences", "memberships", "affiliations", "additional information", "pubblicazioni", "premi", "riconoscimenti", "volontariato", "interessi", "hobby", "altre informazioni", "patente", "patenti"]],
 ];
 const SECTION_MAP = new Map<string, SectionKind>();
 for (const [k, words] of SECTION_WORDS) for (const w of words) SECTION_MAP.set(w, k);
@@ -25,26 +25,28 @@ function sectionOf(text: string): SectionKind | null {
   return SECTION_MAP.get(t) ?? SECTION_MAP.get(t.replace(/\s*&\s*/g, " and ")) ?? null;
 }
 
-const TITLE_WORDS = /\b(engineer|engineering|developer|programmer|architect|scientist|analyst|manager|director|lead|head|vp|vice president|president|ceo|cto|cfo|coo|cpo|founder|co-founder|cofounder|owner|consultant|advisor|adviser|specialist|associate|assistant|intern|internship|trainee|apprentice|designer|researcher|research assistant|fellow|professor|lecturer|teacher|tutor|officer|administrator|coordinator|technician|operator|representative|executive|strategist|recruiter|partner|principal|staff|senior|junior|sr\.?|jr\.?|sde|swe|devops|sre|qa|tester|writer|editor|accountant|auditor|nurse|physician|attorney|lawyer|paralegal|supervisor|contractor|freelance|freelancer|volunteer|student|ambassador|mentor|instructor|coach|agent|clerk|member|product owner|scrum master|werkstudent|praktikant|ingenieur|entwickler|stagiaire|ingénieur|desarrollador|ingeniero)\b/i;
-const ORG_WORDS = /\b(inc|llc|ltd|limited|gmbh|ag|corp|corporation|company|co|plc|s\.?a|b\.?v|n\.?v|pvt|technologies|technology|tech|labs?|group|bank|university|universit[äéy]|college|institute|school|academy|polytechnic|solutions|systems|software|consulting|consultancy|partners|studio|studios|ventures|capital|health|hospital|clinic|foundation|agency|services|media|networks|games|government|ministry|department|council|club|society|association)\b/i;
-const DEGREE_WORDS = /\b(b\.?\s?s\.?c?|b\.?\s?a|b\.?\s?eng|b\.?\s?tech|b\.?\s?e|m\.?\s?s\.?c?|m\.?\s?a|m\.?\s?eng|m\.?\s?tech|mba|ph\.?\s?d|d\.?\s?phil|bachelor'?s?|master'?s?|doctorate|doctor of|diploma|associate'?s? degree|associate of|certificate|a-levels?|gcse|high school|secondary school|hsc|ssc|licence|licenciatura|abitur|bsc|msc|beng|meng|btech|mtech|llb|llm|md|jd|degree|major|minor|honours|honors)\b/i;
-const SCHOOL_WORDS = /\b(university|universit[äéy]|universidad|universidade|università|college|institute|institut|instituto|school|academy|polytechnic|hochschule|école|ecole|iit|nit|mit|ucla|epfl|eth)\b/i;
-const COUNTRY = /\b(usa|u\.s\.a?\.?|us|united states|uk|u\.k\.|united kingdom|england|scotland|wales|ireland|canada|india|germany|deutschland|france|spain|españa|netherlands|nederland|belgium|switzerland|austria|italy|portugal|poland|sweden|norway|denmark|finland|australia|new zealand|singapore|japan|china|hong kong|taiwan|korea|south korea|brazil|brasil|mexico|méxico|argentina|chile|colombia|uae|united arab emirates|israel|turkey|türkiye|egypt|nigeria|kenya|south africa|pakistan|bangladesh|sri lanka|nepal|philippines|vietnam|indonesia|malaysia|thailand|remote)\b/i;
+const TITLE_WORDS = /\b(engineer|engineering|developer|programmer|architect|scientist|analyst|manager|director|lead|head|vp|vice president|president|ceo|cto|cfo|coo|cpo|founder|co-founder|cofounder|owner|consultant|advisor|adviser|specialist|associate|assistant|intern|internship|trainee|apprentice|designer|researcher|research assistant|fellow|professor|lecturer|teacher|tutor|officer|administrator|coordinator|technician|operator|representative|executive|strategist|recruiter|partner|principal|staff|senior|junior|sr\.?|jr\.?|sde|swe|devops|sre|qa|tester|writer|editor|accountant|auditor|nurse|physician|attorney|lawyer|paralegal|supervisor|contractor|freelance|freelancer|volunteer|student|ambassador|mentor|instructor|coach|agent|clerk|member|product owner|scrum master|werkstudent|praktikant|ingenieur|entwickler|stagiaire|ingénieur|desarrollador|ingeniero|sviluppatore|sviluppatrice|ingegnere|programmatore|programmatrice|analista|consulente|tirocinante|stagista|responsabile|direttore|direttrice|impiegato|impiegata|tecnico|progettista|ricercatore|ricercatrice|docente)\b/i;
+const ORG_WORDS = /\b(inc|llc|ltd|limited|gmbh|ag|corp|corporation|company|co|plc|s\.?a|b\.?v|n\.?v|pvt|technologies|technology|tech|labs?|group|bank|university|universit[äéy]|college|institute|school|academy|polytechnic|solutions|systems|software|consulting|consultancy|partners|studio|studios|ventures|capital|health|hospital|clinic|foundation|agency|services|media|networks|games|government|ministry|department|council|club|society|association|s\.?r\.?l|s\.?p\.?a|gruppo|banca|azienda)\b/i;
+const DEGREE_WORDS = /\b(b\.?\s?s\.?c?|b\.?\s?a|b\.?\s?eng|b\.?\s?tech|b\.?\s?e|m\.?\s?s\.?c?|m\.?\s?a|m\.?\s?eng|m\.?\s?tech|mba|ph\.?\s?d|d\.?\s?phil|bachelor'?s?|master'?s?|doctorate|doctor of|diploma|associate'?s? degree|associate of|certificate|a-levels?|gcse|high school|secondary school|hsc|ssc|licence|licenciatura|abitur|bsc|msc|beng|meng|btech|mtech|llb|llm|md|jd|degree|major|minor|honours|honors|laurea(?: magistrale| triennale| specialistica)?|dottorato|maturit[àa]|diploma di)\b/i;
+const SCHOOL_WORDS = /\b(university|universit[äéy]|universidad|universidade|università|college|institute|institut|instituto|school|academy|polytechnic|hochschule|école|ecole|iit|nit|mit|ucla|epfl|eth|politecnico|liceo|istituto|accademia|scuola|universit[àa] degli studi)\b/i;
+const COUNTRY = /\b(usa|u\.s\.a?\.?|us|united states|uk|u\.k\.|united kingdom|england|scotland|wales|ireland|canada|india|germany|deutschland|france|spain|españa|netherlands|nederland|belgium|switzerland|austria|italy|portugal|poland|sweden|norway|denmark|finland|australia|new zealand|singapore|japan|china|hong kong|taiwan|korea|south korea|brazil|brasil|mexico|méxico|argentina|chile|colombia|uae|united arab emirates|israel|turkey|türkiye|egypt|nigeria|kenya|south africa|pakistan|bangladesh|sri lanka|nepal|philippines|vietnam|indonesia|malaysia|thailand|remote|italy|italia|irlanda|germania|francia|spagna|svizzera|regno unito|stati uniti)\b/i;
 const US_STATE = /^(AL|AK|AZ|AR|CA|CO|CT|DE|DC|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|ON|BC|AB|QC|MB|NS|NB|SK)$/;
 
-const LANGS = ["english", "spanish", "french", "german", "italian", "portuguese", "dutch", "russian", "ukrainian", "polish", "czech", "slovak", "hungarian", "romanian", "bulgarian", "serbian", "croatian", "bosnian", "slovenian", "greek", "turkish", "arabic", "hebrew", "persian", "farsi", "urdu", "hindi", "bengali", "bangla", "punjabi", "gujarati", "marathi", "tamil", "telugu", "kannada", "malayalam", "odia", "nepali", "sinhala", "mandarin", "chinese", "cantonese", "japanese", "korean", "vietnamese", "thai", "indonesian", "malay", "tagalog", "filipino", "swahili", "amharic", "yoruba", "igbo", "hausa", "zulu", "afrikaans", "swedish", "norwegian", "danish", "finnish", "icelandic", "estonian", "latvian", "lithuanian", "albanian", "macedonian", "georgian", "armenian", "azerbaijani", "kazakh", "uzbek", "catalan", "basque", "galician", "irish", "welsh", "latin", "sign language", "asl", "bsl", "deutsch", "englisch", "französisch", "spanisch", "italienisch", "russisch", "türkisch", "arabisch", "chinesisch", "polnisch", "niederländisch", "portugiesisch", "anglais", "français", "allemand", "espagnol", "italien", "arabe", "portugais", "néerlandais", "russe", "chinois", "inglés", "español", "francés", "alemán", "italiano", "portugués", "chino", "ruso", "nederlands", "engels", "duits", "frans", "português", "inglês", "polski"];
+const LANGS = ["english", "spanish", "french", "german", "italian", "portuguese", "dutch", "russian", "ukrainian", "polish", "czech", "slovak", "hungarian", "romanian", "bulgarian", "serbian", "croatian", "bosnian", "slovenian", "greek", "turkish", "arabic", "hebrew", "persian", "farsi", "urdu", "hindi", "bengali", "bangla", "punjabi", "gujarati", "marathi", "tamil", "telugu", "kannada", "malayalam", "odia", "nepali", "sinhala", "mandarin", "chinese", "cantonese", "japanese", "korean", "vietnamese", "thai", "indonesian", "malay", "tagalog", "filipino", "swahili", "amharic", "yoruba", "igbo", "hausa", "zulu", "afrikaans", "swedish", "norwegian", "danish", "finnish", "icelandic", "estonian", "latvian", "lithuanian", "albanian", "macedonian", "georgian", "armenian", "azerbaijani", "kazakh", "uzbek", "catalan", "basque", "galician", "irish", "welsh", "latin", "sign language", "asl", "bsl", "deutsch", "englisch", "französisch", "spanisch", "italienisch", "russisch", "türkisch", "arabisch", "chinesisch", "polnisch", "niederländisch", "portugiesisch", "anglais", "français", "allemand", "espagnol", "italien", "arabe", "portugais", "néerlandais", "russe", "chinois", "inglés", "español", "francés", "alemán", "italiano", "portugués", "chino", "ruso", "nederlands", "engels", "duits", "frans", "português", "inglês", "polski", "inglese", "francese", "tedesco", "spagnolo", "portoghese", "cinese", "russo", "arabo", "olandese", "giapponese", "polacco", "rumeno", "ucraino", "greco", "turco"];
 /** Language names written in another language, as the app stores them. */
 const LANG_ALIASES: Record<string, string> = {
   deutsch: "German", englisch: "English", französisch: "French", spanisch: "Spanish", italienisch: "Italian", russisch: "Russian", türkisch: "Turkish", arabisch: "Arabic", chinesisch: "Chinese", polnisch: "Polish", niederländisch: "Dutch", portugiesisch: "Portuguese",
   anglais: "English", français: "French", allemand: "German", espagnol: "Spanish", italien: "Italian", arabe: "Arabic", portugais: "Portuguese", néerlandais: "Dutch", russe: "Russian", chinois: "Chinese",
   inglés: "English", español: "Spanish", francés: "French", alemán: "German", italiano: "Italian", portugués: "Portuguese", chino: "Chinese", ruso: "Russian",
+  inglese: "English", francese: "French", tedesco: "German", spagnolo: "Spanish", portoghese: "Portuguese", cinese: "Chinese", russo: "Russian", arabo: "Arabic",
+  olandese: "Dutch", giapponese: "Japanese", polacco: "Polish", rumeno: "Romanian", ucraino: "Ukrainian", greco: "Greek", turco: "Turkish",
   nederlands: "Dutch", engels: "English", duits: "German", frans: "French", português: "Portuguese", inglês: "English", polski: "Polish", farsi: "Persian", bangla: "Bengali", filipino: "Filipino", mandarin: "Mandarin Chinese",
 };
 const LANG_RE = new RegExp(`^(${LANGS.sort((a, b) => b.length - a.length).join("|")})\\b`, "i");
 
 export function structure(doc: ExtractedDoc): ParsedResume {
   const lines = preprocess(doc.lines);
-  const res: ParsedResume = { source: doc.source, contact: {}, summary: null, experience: [], education: [], projects: [], skills: [], certifications: [], languages: [], other: [], warnings: [...doc.warnings] };
+  const res: ParsedResume = { source: doc.source, language: "en", contact: {}, summary: null, experience: [], education: [], projects: [], skills: [], certifications: [], languages: [], other: [], warnings: [...doc.warnings] };
 
   // Split into sections.
   const sections: Array<{ kind: SectionKind | "header"; heading: string; lines: Line[] }> = [{ kind: "header", heading: "", lines: [] }];
@@ -77,6 +79,7 @@ export function structure(doc: ExtractedDoc): ParsedResume {
   }
   // Contact details anywhere in the file (some templates put them in a footer or sidebar).
   fillContactFromAll(lines, doc.links, res);
+  res.language = textLanguage(lines.map((l) => l.text).join(" "));
   res.skills = dedupe(res.skills);
   res.languages = dedupeBy(res.languages, (l) => l.language.toLowerCase());
   if (!res.contact.name) res.warnings.push("Your name wasn't found. Add it below.");
@@ -87,6 +90,15 @@ export function structure(doc: ExtractedDoc): ParsedResume {
 // ---------------------------------------------------------------- preprocessing
 
 const LONE_END = /^(present|current|now|today|heute|\d{1,2}\/\d{4}|(?:19|20)\d{2})$/i;
+/** Italian or English, from the most common words; the same test the job reader uses. */
+function textLanguage(text: string): "en" | "it" {
+  const words = text.toLowerCase().match(/[\p{L}']+/gu) ?? [];
+  const it = new Set("il la di che e per con del della delle dei degli un una sono nel nella presso esperienza competenze lingue istruzione gestione sviluppo progetti attività".split(" "));
+  const en = new Set("the and of to in a for with on at by from as led built managed developed using experience skills education".split(" "));
+  const n = (set: Set<string>) => words.filter((w) => set.has(w)).length;
+  return n(it) > n(en) * 1.2 ? "it" : "en";
+}
+
 function preprocess(lines: Line[]): Line[] {
   const out: Line[] = [];
   for (const raw of lines) {
@@ -297,11 +309,15 @@ function fields(header: Line[], kind: "role" | "education", inheritOrg?: string)
     made.forEach((m, k) => { if (k) m.after = made[k - 1]; });
     return made;
   });
-  const place = pieces.find((p) => looksLikePlace(p.text));
+  // "Milano | gen 2021 – oggi": a short name beside the dates is where, when nothing else says so.
+  const dateLine = header.findIndex((l) => findDateRange(l.text));
+  const besideDates = (p: Piece) => p.line === dateLine && !p.after && p.text.split(/\s+/).length <= 3 && /^\p{Lu}/u.test(p.text) && !TITLE_WORDS.test(p.text) && !ORG_WORDS.test(p.text) && !DEGREE_WORDS.test(p.text) && !SCHOOL_WORDS.test(p.text) && !/\d/.test(p.text);
+  const place = pieces.find((p) => looksLikePlace(p.text)) ?? (pieces.length >= 3 ? pieces.find(besideDates) : undefined);
   if (place) { f.location = place.text; pieces = pieces.filter((p) => p !== place); }
   const isA = kind === "role" ? (s: string) => TITLE_WORDS.test(s) : (s: string) => DEGREE_WORDS.test(s);
   const isB = kind === "role" ? (s: string) => ORG_WORDS.test(s) : (s: string) => SCHOOL_WORDS.test(s);
-  const score = (p: Piece) => (isA(p.text) ? 2 : 0) - (isB(p.text) ? 2 : 0) + (p.italic ? 1 : 0) - (p.bold ? 1 : 0);
+  // A job-title word outweighs an organisation word ("Senior Software Engineer" is a title, not a company).
+  const score = (p: Piece) => (isA(p.text) ? 2 : isB(p.text) ? -2 : 0) + (p.italic ? 1 : 0) - (p.bold ? 1 : 0);
   if (pieces.length === 1) {
     if (isA(pieces[0]!.text) && !isB(pieces[0]!.text)) { f.title = pieces[0]!.text; f.org = inheritOrg ?? ""; if (!inheritOrg) f.unsure.add("org"); }
     else { f.org = pieces[0]!.text; f.unsure.add("title"); }
@@ -413,12 +429,12 @@ function readCertifications(lines: Line[]): Certification[] {
 }
 
 const LEVELS: Array<[RegExp, CEFR]> = [
-  [/\b(native|mother tongue|first language|muttersprache|langue maternelle|nativo|nativa|lengua materna|moedertaal|bilingual)\b/i, "native"],
-  [/\bC2\b|\b(proficient|full professional|near native|near-native|verhandlungssicher|courant|fluent|fluency|fließend)\b/i, "C2"],
-  [/\bC1\b|\b(advanced|professional working|professional|sehr gut|avancé|avanzado)\b/i, "C1"],
-  [/\bB2\b|\b(upper intermediate|upper-intermediate|good|gut|limited working)\b/i, "B2"],
-  [/\bB1\b|\b(intermediate|conversational|working knowledge|intermédiaire|intermedio)\b/i, "B1"],
-  [/\bA2\b|\b(elementary|basic|grundkenntnisse|basique|básico)\b/i, "A2"],
+  [/\b(native|mother tongue|first language|muttersprache|langue maternelle|nativo|nativa|lengua materna|moedertaal|bilingual|madrelingua|lingua madre)\b/i, "native"],
+  [/\bC2\b|\b(proficient|full professional|near native|near-native|verhandlungssicher|courant|fluent|fluency|fließend|ottimo|ottima|eccellente|fluente)\b/i, "C2"],
+  [/\bC1\b|\b(advanced|professional working|professional|sehr gut|avancé|avanzado|avanzato|avanzata|molto buono|molto buona)\b/i, "C1"],
+  [/\bB2\b|\b(upper intermediate|upper-intermediate|good|gut|limited working|buono|buona)\b/i, "B2"],
+  [/\bB1\b|\b(intermediate|conversational|working knowledge|intermédiaire|intermedio|intermedia|discreto|discreta)\b/i, "B1"],
+  [/\bA2\b|\b(elementary|basic|grundkenntnisse|basique|básico|base|scolastico|scolastica|elementare)\b/i, "A2"],
   [/\bA1\b|\b(beginner|notions|débutant|principiante)\b/i, "A1"],
 ];
 function readLanguages(lines: Line[]): LanguageSkill[] {

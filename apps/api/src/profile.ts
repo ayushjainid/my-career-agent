@@ -113,7 +113,7 @@ profile.post("/facts", async (c) => {
 
 profile.get("/facts", async (c) => {
   const [rows] = await c.get("db").asUser(c.get("userId"), [
-    stmt(`SELECT id, kind, text, org, location, source, skills, start_date::text AS start_date, end_date::text AS end_date, verified
+    stmt(`SELECT id, kind, text, org, location, source, lang, translations, skills, start_date::text AS start_date, end_date::text AS end_date, verified
           FROM mca.fact ORDER BY start_date DESC NULLS LAST, created_at`),
   ]);
   return c.json({ items: rows });
@@ -128,12 +128,25 @@ profile.patch("/facts/:id", async (c) => {
   if (b.text !== undefined && !text) return c.json({ error: "text cannot be empty" }, 400);
   if (b.verified !== undefined && typeof b.verified !== "boolean") return c.json({ error: "verified must be true or false" }, 400);
   const verified = b.verified === undefined ? null : (b.verified as boolean);
+  // Translations: { it: "..." } sets the Italian wording, { it: null } removes it. Other languages keep theirs.
+  let translations: Record<string, string | null> | null = null;
+  if (b.translations !== undefined) {
+    if (!b.translations || typeof b.translations !== "object") return c.json({ error: "translations must be an object like { it: \"...\" }" }, 400);
+    translations = {};
+    for (const [k, v] of Object.entries(b.translations as Record<string, unknown>)) {
+      if (!["en", "it"].includes(k)) return c.json({ error: "translations are en or it" }, 400);
+      if (v !== null && (typeof v !== "string" || v.length > 2000)) return c.json({ error: "a translation is text up to 2,000 characters" }, 400);
+      translations[k] = typeof v === "string" && v.trim() ? v.trim() : null;
+    }
+  }
   const [rows] = await c.get("db").asUser(c.get("userId"), [
     stmt(
       `UPDATE mca.fact SET text = coalesce($2, text),
-         verified = CASE WHEN $3::boolean IS NOT NULL THEN $3::boolean WHEN $2::text IS NOT NULL THEN false ELSE verified END
-       WHERE id = $1 RETURNING id, verified`,
-      id, text, verified,
+         verified = CASE WHEN $3::boolean IS NOT NULL THEN $3::boolean WHEN $2::text IS NOT NULL THEN false ELSE verified END,
+         translations = CASE WHEN $4::jsonb IS NULL THEN translations
+                             ELSE jsonb_strip_nulls(translations || $4::jsonb) END
+       WHERE id = $1 RETURNING id, verified, translations`,
+      id, text, verified, translations ? JSON.stringify(translations) : null,
     ),
   ]);
   if (!rows?.length) return c.json({ error: "fact not found" }, 404);

@@ -76,6 +76,8 @@ export interface FollowupDraftInput {
   /** All text the employer already received for this application: used to verify submittedClaim. */
   submittedMaterials: string;
   senderName: string;
+  /** The application's language: an Italian posting gets an Italian follow-up. */
+  language?: "en" | "it";
 }
 
 export interface FollowupDraft {
@@ -87,13 +89,46 @@ export interface FollowupDraft {
 
 const norm = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}%$€£.]+/gu, " ").trim();
 
+/** Italian drafts use the formal register (Lei / voi) Italian recruiters expect. */
+function italianFollowup(i: FollowupDraftInput, claim: string, warnings: string[]): FollowupDraft {
+  const hello = i.contactName ? `Gentile ${i.contactName},` : `Gentile team di selezione di ${i.company},`;
+  const body =
+    i.kind === "thank_you"
+      ? [
+          hello,
+          "",
+          `La ringrazio per il tempo che mi ha dedicato durante il colloquio per la posizione di ${i.role}. È stata una conversazione interessante e il lavoro del team mi motiva ancora di più.`,
+          `Un contributo che porterei al team: ${claim}`,
+          "Resto a disposizione per qualsiasi informazione utile per il prossimo passo.",
+          "",
+          "Cordiali saluti,",
+          i.senderName,
+        ].join("\n")
+      : [
+          hello,
+          "",
+          `vi scrivo in merito alla mia candidatura per la posizione di ${i.role}, che continua a interessarmi molto.`,
+          `Ricordo brevemente cosa porterei: ${claim}`,
+          "Potreste indicarmi a che punto è la selezione e quali sono i prossimi passi?",
+          "",
+          "Grazie per l'attenzione,",
+          i.senderName,
+        ].join("\n");
+  const subject = i.channel === "email" ? (i.kind === "thank_you" ? `Grazie per il colloquio: ${i.role}` : `Candidatura per ${i.role}: aggiornamento`) : null;
+  const words = countWords(body);
+  const [lo, hi] = i.channel === "linkedin" ? [30, 95] : [60, 130];
+  if (words < lo || words > hi) warnings.push(`${words} parole; meglio tra ${lo} e ${hi}.`);
+  return { subject, body, words, warnings };
+}
+
 /** A plain template the user edits. It works without any AI; an AI rewrite must pass the same checks. */
 export function draftFollowup(i: FollowupDraftInput): FollowupDraft {
   const warnings: string[] = [];
   if (!norm(i.submittedMaterials).includes(norm(i.submittedClaim)))
     warnings.push("The reminder sentence is not in the materials you submitted. Use only what the employer has already seen.");
-  const hello = i.contactName ? `Hi ${i.contactName},` : `Hello ${i.company} team,`;
   const claim = i.submittedClaim.trim().replace(/\s*\.?$/, ".");
+  if (i.language === "it") return italianFollowup(i, claim, warnings);
+  const hello = i.contactName ? `Hi ${i.contactName},` : `Hello ${i.company} team,`;
   const body =
     i.kind === "thank_you"
       ? [

@@ -105,7 +105,7 @@ export interface TextLayerInput {
 }
 
 export interface TextLayerIssue {
-  code: "no_text" | "too_short" | "page_count" | "missing_required" | "non_ascii_date" | "no_email" | "no_phone" | "keyword_gap";
+  code: "no_text" | "too_short" | "page_count" | "missing_required" | "non_ascii_date" | "no_email" | "no_phone" | "keyword_gap" | "untranslated";
   severity: "error" | "warning";
   detail: string;
 }

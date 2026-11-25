@@ -1,7 +1,7 @@
 // Beta loop B2 endpoint: a tailored resume for a job or a target role, as PDF, DOCX or JSON
 // (the JSON carries the ATS text check, so the packet can show it before anyone downloads).
 
-import { buildResume, checkResume, extractRequirements, resumeLines, type Fact, type JobRequirements, type ResumeContact } from "@my-career-agent/core";
+import { buildResume, checkResume, detectLanguage, extractRequirements, resumeLines, type Fact, type JobRequirements, type ResumeContact, type ResumeLocale } from "@my-career-agent/core";
 import { Hono } from "hono";
 import type { AppBindings } from "./env.js";
 import { stmt } from "./lib/tenant.js";
@@ -14,14 +14,17 @@ resume.get("/resume", async (c) => {
   const jobId = c.req.query("jobId") ?? null;
   const targetId = c.req.query("targetId") ?? null;
   const format = (c.req.query("format") ?? "json").toLowerCase();
+  const langParam = c.req.query("lang") ?? null;
+  if (langParam && !["en", "it"].includes(langParam)) return c.json({ error: "lang is en or it" }, 400);
   if ((jobId && !UUID.test(jobId)) || (targetId && !UUID.test(targetId))) return c.json({ error: "bad id" }, 400);
   if (!["json", "pdf", "docx"].includes(format)) return c.json({ error: "format is json, pdf or docx" }, 400);
 
-  const [facts = [], answers = [], jobs = [], targets = []] = await c.get("db").asUser(c.get("userId"), [
-    stmt(`SELECT id, kind, text, org, skills, start_date::text AS start_date, end_date::text AS end_date, verified FROM mca.fact WHERE verified`),
+  const [facts = [], answers = [], jobs = [], targets = [], spoken = []] = await c.get("db").asUser(c.get("userId"), [
+    stmt(`SELECT id, kind, text, org, skills, start_date::text AS start_date, end_date::text AS end_date, verified, lang, translations FROM mca.fact WHERE verified`),
     stmt(`SELECT question_key, answer FROM mca.answer_bank_entry WHERE question_key LIKE 'contact.%'`),
     jobId ? stmt(`SELECT j.title, j.description_text, j.requirements, co.name AS company FROM mca.job j JOIN mca.company co ON co.id = j.company_id WHERE j.id = $1`, jobId) : stmt(`SELECT 1 WHERE false`),
     stmt(`SELECT id, title FROM mca.target ORDER BY ($1::uuid IS NOT NULL AND id = $1::uuid) DESC, title LIMIT 1`, targetId),
+    stmt(`SELECT language, level FROM mca.user_language ORDER BY CASE level WHEN 'native' THEN 0 ELSE 1 END, level DESC, language`),
   ]);
   const a = (k: string) => (answers.find((x) => x.question_key === `contact.${k}`)?.answer as string | undefined)?.trim() || null;
   const name = a("full_name");
@@ -39,10 +42,15 @@ resume.get("/resume", async (c) => {
   const factRows: Fact[] = facts.map((f) => ({
     id: String(f.id), kind: f.kind as Fact["kind"], text: String(f.text), org: (f.org as string | null) ?? null,
     skills: (f.skills as string[]) ?? [], startDate: (f.start_date as string | null) ?? null, endDate: (f.end_date as string | null) ?? null, verified: true,
+    lang: (f.lang as "en" | "it" | null) ?? "en", translations: (f.translations as Fact["translations"] | null) ?? {},
   }));
-  const doc = buildResume(contact, factRows, { title, keywords });
+  // An Italian posting gets an Italian CV unless the caller asks otherwise.
+  const locale: ResumeLocale = (langParam as ResumeLocale | null) ?? ((req?.postingLanguage ?? (job ? detectLanguage(String(job.description_text ?? "")) : "en")) === "it" ? "it" : "en");
+  const doc = buildResume(contact, factRows, { title, keywords }, {
+    locale, languages: spoken.map((l) => ({ language: String(l.language), level: String(l.level) })),
+  });
   const ascii = (s: string) => s.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^A-Za-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-  const base = [ascii(name) || "Resume", "Resume", job ? ascii(String(job.company)) : ""].filter(Boolean).join("-");
+  const base = [ascii(name) || "Resume", locale === "it" ? "CV" : "Resume", job ? ascii(String(job.company)) : ""].filter(Boolean).join("-");
 
   if (format === "docx") {
     c.header("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
@@ -65,5 +73,8 @@ resume.get("/resume", async (c) => {
   if (changed.length)
     check.issues.push({ code: "missing_required", severity: "warning",
       detail: `The PDF can't show some characters exactly (e.g. "${changed[0]!.slice(0, 60)}"). Use the DOCX where that matters.` });
-  return c.json({ resume: doc, lines: resumeLines(doc), pages: pdf.pages, check, files: { base } });
+  if (doc.untranslated)
+    check.issues.push({ code: "untranslated", severity: "warning",
+      detail: `${doc.untranslated} ${doc.untranslated === 1 ? "line is" : "lines are"} still in English. Add Italian versions on your Profile.` });
+  return c.json({ resume: doc, lines: resumeLines(doc), pages: pdf.pages, check, locale, files: { base } });
 });

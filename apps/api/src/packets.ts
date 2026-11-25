@@ -4,11 +4,14 @@
 import {
   DEFAULT_FIELD_LIMITS,
   STANDARD_QUESTIONS,
+  REQUIRED_BY_COUNTRY,
+  questionCountry,
   isAnswerKey,
   isSensitiveKey,
   reviewField,
   type Fact,
   type FieldKind,
+  detectLanguage,
 } from "@my-career-agent/core";
 import { Hono } from "hono";
 import type { AppBindings } from "./env.js";
@@ -24,14 +27,15 @@ const toFacts = (rows: Row[]): Fact[] =>
   rows.map((r) => ({
     id: String(r.id),
     kind: r.kind as Fact["kind"],
-    text: String(r.text),
+    // Figures in an Italian answer are checked against the Italian wording too ("1,2 milioni" for "1.2M").
+    text: [String(r.text), ...Object.values((r.translations as Record<string, string> | null) ?? {})].join("\n"),
     skills: (r.skills as string[]) ?? [],
     startDate: (r.start_date as string | null) ?? null,
     endDate: (r.end_date as string | null) ?? null,
     verified: Boolean(r.verified),
   }));
 
-const FACTS_SQL = `SELECT id, kind, text, skills, start_date::text AS start_date, end_date::text AS end_date, verified FROM mca.fact`;
+const FACTS_SQL = `SELECT id, kind, text, skills, start_date::text AS start_date, end_date::text AS end_date, verified, translations FROM mca.fact`;
 
 // ---------- Answer bank ----------
 
@@ -153,7 +157,7 @@ packets.get("/packets/:jobId", async (c) => {
   if (!UUID.test(jobId)) return c.json({ error: "bad job id" }, 400);
   const [jobs = [], bank = [], apps = [], answers = [], facts = []] = await c.get("db").asUser(c.get("userId"), [
     stmt(`SELECT j.id, j.title, j.apply_url, j.ats_vendor, j.location_text, j.remote_type, j.pay_min, j.pay_max, j.pay_currency,
-                 j.integrity, j.company_id, co.name AS company
+                 j.integrity, j.company_id, j.country, j.requirements->>'postingLanguage' AS language, left(j.description_text, 4000) AS description, co.name AS company
           FROM mca.job j JOIN mca.company co ON co.id = j.company_id WHERE j.id = $1`, jobId),
     stmt(`SELECT question_key, answer, sensitive FROM mca.answer_bank_entry ORDER BY question_key`),
     stmt(`SELECT a.id, a.state, a.fit_score, a.gate_verdict, a.gates, a.notes, ct.full_name AS referral_name
@@ -176,8 +180,12 @@ packets.get("/packets/:jobId", async (c) => {
     return { ...input, review: review(input, f) };
   });
   const have = new Set(bank.map((b) => String(b.question_key)));
-  const country = "us"; // POC: US pack only
-  const missingSensitive = STANDARD_QUESTIONS.filter((q) => q.sensitive && q.key.startsWith(`${country}.`) && !have.has(q.key)).map((q) => q.label);
+  // This job's country decides which work-authorization answers the form will ask for.
+  const country = String(job.country ?? "US").toUpperCase();
+  // Jobs stored before posting language was recorded fall back to reading the text.
+  const italian = (job.language ?? detectLanguage(String(job.description ?? ""))) === "it";
+  delete (job as Record<string, unknown>).description;
+  const missingSensitive = (REQUIRED_BY_COUNTRY[country] ?? []).filter((k) => !have.has(k)).map((k) => STANDARD_QUESTIONS.find((q) => q.key === k)?.label ?? k);
   const blockers = [
     ...reviewed.filter((a) => !a.review.ready).map((a) => `"${a.label}" needs fixing before it can be used`),
     ...missingSensitive.map((l) => `Answer bank is missing: ${l}`),
@@ -189,12 +197,14 @@ packets.get("/packets/:jobId", async (c) => {
     job: { ...job, integrity: integrity ? { level: integrity.level, verdict: integrity.verdict } : null },
     payBenchmark: pay.values().next().value ?? null,
     application: apps[0] ?? null,
-    fields: bank.map((b) => ({
-      key: b.question_key,
-      label: STANDARD_QUESTIONS.find((q) => q.key === b.question_key)?.label ?? b.question_key,
-      value: b.answer,
-      sensitive: b.sensitive,
-    })),
+    // Only this country's work-authorization answers; Italian forms' own field names alongside.
+    fields: bank
+      .filter((b) => { const cc = questionCountry(String(b.question_key)); return !cc || cc === country; })
+      .map((b) => {
+        const q = STANDARD_QUESTIONS.find((x) => x.key === b.question_key);
+        return { key: b.question_key, label: q?.label ?? b.question_key, formLabel: italian ? q?.labelIt ?? null : null, value: b.answer, sensitive: b.sensitive };
+      }),
+    language: italian ? "it" : "en",
     answers: reviewed,
     // Tailored to this job from verified facts; the JSON form carries the ATS text check.
     resume: {
