@@ -100,6 +100,9 @@ const env: Env = {
   DATABASE_URL: "local", INGEST_DATABASE_URL: "local", DEV_MODE: "false", INGEST_BOARDS_PER_RUN: "0",
   INBOUND_DOMAIN: "in.localhost", API_TOKENS: `me:${TOKEN}`, ASSETS: assets, TEST_DB: db,
   INVITE_REQUIRED: "false", PBKDF2_ITERATIONS: "20000", AI_KEY_SECRET: "local-dev-only-ai-key-secret-0123456789",
+  // Local only: "send" account email by printing it, so reset links can be followed by hand.
+  MAIL_FROM: "noreply@mycareeragent.dev",
+  EMAIL: { send: async (m: { to: string; subject: string; text?: string }) => { console.log(`\n--- email to ${m.to}: ${m.subject}\n${m.text}\n---`); return {}; } },
   ...(process.env.DEV_GOOGLE ? { GOOGLE_CLIENT_ID: "dev-client", GOOGLE_CLIENT_SECRET: "dev-secret" } : {}),
 };
 

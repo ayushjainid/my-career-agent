@@ -281,6 +281,7 @@ async function route() {
   let [name = "", ...args] = parts;
   args = args.map(decodeURIComponent);
   if (["privacy", "terms"].includes(name)) { shell(name); await VIEWS[name](); return; }
+  if (name === "forgot" || name === "reset") { shell("signin"); await VIEWS[name](...args); return; }
   if (!state.me) {
     render(loading());
     try { await loadMe(); } catch (e) { render(msg("stop", e.message)); return; }
@@ -315,12 +316,15 @@ VIEWS.signin = (mode = "signin") => {
   const pw = input({ type: "password", autocomplete: mode === "signup" ? "new-password" : "current-password", required: true, minlength: mode === "signup" ? 10 : null });
   const invite = input({ autocomplete: "off", autocapitalize: "characters", spellcheck: "false" });
   const submit = btn(mode === "signup" ? "Create account" : "Sign in", { kind: "primary", type: "submit" });
+  const forgotLink = el("a", { href: "#/forgot", class: "note", hidden: true, style: { marginLeft: "auto" } }, "Forgot your password?");
   const form = el("form", { novalidate: true },
     field("Email", email),
     field("Password", pw, mode === "signup" ? "(at least 10 characters)" : null),
     mode === "signup" ? field("Invite code", invite, "(from your beta invitation)") : null,
-    el("div", { class: "row" }, submit),
+    el("div", { class: "row" }, submit, forgotLink),
     out);
+  // "Forgot your password?" shows only when this server can send the reset email.
+  if (mode === "signin") api("GET", "/auth/reset/available").then((r) => { if (r.available) forgotLink.hidden = false; }).catch(() => {});
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     submit.setAttribute("aria-busy", "true");
@@ -360,6 +364,56 @@ VIEWS.signin = (mode = "signin") => {
   email.focus();
 };
 VIEWS.signup = () => VIEWS.signin("signup");
+
+// Forgot password: ask for the email, then the link in it opens #/reset/<token>.
+const gateShell = (title, lede, ...body) => render(el("div", { class: "gate" },
+  el("div", { class: "gate-art" }, el("div", {}, el("h1", {}, "Every application, timed for your offer window.")), gateArt()),
+  el("div", { class: "gate-form" }, el("h2", { style: { fontSize: "24px" } }, title), lede ? el("p", { class: "note measure" }, lede) : null, ...body,
+    el("p", { class: "note", style: { marginTop: "24px" } }, el("a", { href: "#/signin" }, "Back to sign in")))));
+VIEWS.forgot = () => {
+  const out = el("div", { "aria-live": "polite" });
+  const email = input({ type: "email", autocomplete: "email", required: true, inputmode: "email" });
+  const send = btn("Send reset link", { kind: "primary", type: "submit" });
+  const form = el("form", { novalidate: true }, field("Email", email), el("div", { class: "row" }, send), out);
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    send.setAttribute("aria-busy", "true");
+    try { const r = await api("POST", "/auth/forgot", { email: email.value }); clear(out, msg("go", r.message)); form.querySelector("input").disabled = true; send.disabled = true; }
+    catch (err) { clear(out, msg("stop", err.message)); }
+    finally { send.removeAttribute("aria-busy"); }
+  });
+  gateShell("Reset your password", "Enter the email you signed up with. We'll send a link to set a new password.", form);
+  email.focus();
+};
+VIEWS.reset = async (token = "") => {
+  history.replaceState(null, "", "#/reset"); // the token is single-use; keep it out of history
+  gateShell("Set a new password", null, loading());
+  const r = await api("POST", "/auth/reset/check", { token }).catch(() => ({ valid: false }));
+  if (!r.valid) {
+    gateShell("This link has expired", "Reset links work once, for 30 minutes. Ask for a new one.", el("div", { class: "row" }, el("a", { class: "btn primary", href: "#/forgot" }, "Send a new link")));
+    return;
+  }
+  const out = el("div", { "aria-live": "polite" });
+  const pw = input({ type: "password", autocomplete: "new-password", required: true, minlength: 10 });
+  const pw2 = input({ type: "password", autocomplete: "new-password", required: true });
+  const save = btn("Set password and sign in", { kind: "primary", type: "submit" });
+  const form = el("form", { novalidate: true }, field("New password", pw, "(at least 10 characters)"), field("Type it again", pw2), el("div", { class: "row" }, save), out);
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (pw.value !== pw2.value) { clear(out, msg("stop", "The two passwords don't match.")); return; }
+    save.setAttribute("aria-busy", "true");
+    try {
+      await api("POST", "/auth/reset", { token, password: pw.value });
+      tokenStore.set(null);
+      await loadMe();
+      toast("Password changed. You're signed in, and every other session was signed out.");
+      location.hash = state.me && state.me.onboarding.complete ? "#/today" : "#/setup";
+    } catch (err) { clear(out, msg("stop", err.message)); }
+    finally { save.removeAttribute("aria-busy"); }
+  });
+  gateShell("Set a new password", "Setting it signs you in here and signs out every other device.", form);
+  pw.focus();
+};
 
 // ---------------------------------------------------------------- setup wizard
 const STEP_HELP = {

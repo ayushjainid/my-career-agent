@@ -9,6 +9,7 @@ import { REQUIRED_BY_COUNTRY } from "@my-career-agent/core";
 import { Hono, type Context } from "hono";
 import type { AppBindings, Env } from "./env.js";
 import { stmt, type TenantDb } from "./lib/tenant.js";
+import { mailConfigured, resetMail, sendMail } from "./lib/mail.js";
 
 export const SESSION_COOKIE = "mca_session";
 const SESSION_DAYS = 30;
@@ -153,6 +154,62 @@ authPublic.post("/auth/login", async (c) => {
   if (storedIterations !== iterationsFor(c.env))
     await db.asSystem([stmt(`SELECT mca.auth_set_password($1, $2, $3)`, uid, await hashPassword(password, iterationsFor(c.env)), "")]);
   await startSession(c, db, uid);
+  return c.json({ ok: true });
+});
+
+// ---------- forgot password ----------
+
+export const RESET_MINUTES = 30;
+const SAME_ANSWER = { ok: true, message: "If that email has an account, a reset link is on its way. It works for 30 minutes." };
+
+/** Whether this server can send reset emails (the sign-in page shows the link only if so). */
+authPublic.get("/auth/reset/available", (c) => c.json({ available: mailConfigured(c.env) }));
+
+/**
+ * Sends a reset link. The answer is identical whether or not the email has an account, and takes
+ * about as long, so the route can't be used to find out who has signed up.
+ */
+authPublic.post("/auth/forgot", async (c) => {
+  if (!mailConfigured(c.env)) return c.json({ error: "Password reset by email isn't set up on this server yet." }, 503);
+  const b = await c.req.json<Record<string, unknown>>().catch(() => ({}) as Record<string, unknown>);
+  const email = cleanEmail(b.email);
+  if (!EMAIL.test(email)) return c.json({ error: "Enter the email you signed up with." }, 400);
+  const token = randomToken();
+  const db = c.get("db");
+  const [[row] = []] = await db.asSystem([stmt(`SELECT mca.reset_request($1, $2, $3) AS user_id`, email, await sha256(token), RESET_MINUTES)]);
+  if (row?.user_id) {
+    const base = (c.env.APP_URL || new URL(c.req.url).origin).replace(/\/$/, "");
+    const r = await sendMail(c.env, resetMail(email, `${base}/#/reset/${token}`, RESET_MINUTES));
+    if (!r.sent) console.error(JSON.stringify({ event: "reset_mail_failed", reason: r.reason }));
+  } else {
+    await sha256(randomToken()); // keep the timing close to the path that sends
+  }
+  return c.json(SAME_ANSWER);
+});
+
+authPublic.post("/auth/reset/check", async (c) => {
+  const b = await c.req.json<Record<string, unknown>>().catch(() => ({}) as Record<string, unknown>);
+  const token = typeof b.token === "string" ? b.token : "";
+  if (!/^[A-Za-z0-9_-]{20,100}$/.test(token)) return c.json({ valid: false });
+  const [[row] = []] = await c.get("db").asSystem([stmt(`SELECT mca.reset_lookup($1) AS email`, await sha256(token))]);
+  return c.json({ valid: !!row?.email });
+});
+
+/** Sets the new password from a valid link, signs out every session, and signs this browser in. */
+authPublic.post("/auth/reset", async (c) => {
+  const b = await c.req.json<Record<string, unknown>>().catch(() => ({}) as Record<string, unknown>);
+  const token = typeof b.token === "string" ? b.token : "";
+  const expired = { error: "This reset link has expired or was already used. Ask for a new one." };
+  if (!/^[A-Za-z0-9_-]{20,100}$/.test(token)) return c.json(expired, 400);
+  const db = c.get("db");
+  const h = await sha256(token);
+  const [[found] = []] = await db.asSystem([stmt(`SELECT mca.reset_lookup($1) AS email`, h)]);
+  if (!found?.email) return c.json(expired, 400);
+  const problem = passwordProblem(b.password, String(found.email));
+  if (problem) return c.json({ error: problem }, 400);
+  const [[row] = []] = await db.asSystem([stmt(`SELECT mca.reset_complete($1, $2) AS user_id`, h, await hashPassword(b.password as string, iterationsFor(c.env)))]);
+  if (!row?.user_id) return c.json(expired, 400);
+  await startSession(c, db, String(row.user_id));
   return c.json({ ok: true });
 });
 

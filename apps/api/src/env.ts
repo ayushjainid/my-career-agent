@@ -25,6 +25,14 @@ export interface Env {
   STRIPE_WEBHOOK_SECRET?: string;
   /** Applications per day without a paid plan, once billing is on. */
   FREE_DAILY_LIMIT?: string;
+  /** Account email (password resets): the sender address, e.g. "noreply@mycareeragent.dev". */
+  MAIL_FROM?: string;
+  /** Cloudflare Email Service binding (send_email). Sending to any address needs Workers Paid. */
+  EMAIL?: { send(m: { to: string; from: { email: string; name?: string }; subject: string; text?: string; html?: string }): Promise<unknown> };
+  /** Resend API key, the free alternative to the binding. */
+  RESEND_API_KEY?: string;
+  /** Public base URL for links in emails, e.g. "https://app.mycareeragent.dev". */
+  APP_URL?: string;
   /** Google OAuth client for "Connect Gmail" (gmail.metadata scope). Optional. */
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
