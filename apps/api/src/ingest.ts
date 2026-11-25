@@ -48,24 +48,15 @@ export function toRecord(job: NormalizedJob) {
   };
 }
 
-async function ingestCompany(sql: Sql, c: CompanyRow, report: IngestReport): Promise<void> {
-  const fresh = await fetchBoard({ vendor: c.ats_vendor, board: c.ats_board, region: c.ats_region });
-  const stored = (await sql`
-    SELECT ats_job_id AS "atsJobId", status, first_seen_at AS "firstSeenAt"
-    FROM mca.job WHERE company_id = ${c.id}`) as StoredJobKey[];
-  const diff = diffBoard(fresh, stored.map((s) => ({ ...s, firstSeenAt: new Date(s.firstSeenAt).toISOString() })));
-
-  const upserts = [...diff.added, ...diff.stillOpen, ...diff.reopened].map(toRecord);
-  const queries = [];
-  if (upserts.length) {
-    queries.push(sql`
+function upsertJobs(sql: Sql, companyId: string, rows: ReturnType<typeof toRecord>[]) {
+  return sql`
       INSERT INTO mca.job (company_id, ats_vendor, ats_job_id, title, location_text, country, remote_type,
         pay_min, pay_max, pay_currency, pay_period, pay_source, posted_at, apply_url,
         description_text, requirements, sponsorship_text_signal, integrity, status, last_seen_at)
-      SELECT ${c.id}::uuid, r.ats_vendor, r.ats_job_id, r.title, r.location_text, r.country, r.remote_type,
+      SELECT ${companyId}::uuid, r.ats_vendor, r.ats_job_id, r.title, r.location_text, r.country, r.remote_type,
         r.pay_min, r.pay_max, r.pay_currency, r.pay_period, r.pay_source, r.posted_at, r.apply_url,
         r.description_text, r.requirements, r.sponsorship_text_signal, r.integrity, 'open', now()
-      FROM jsonb_to_recordset(${JSON.stringify(upserts)}::jsonb) AS r(
+      FROM jsonb_to_recordset(${JSON.stringify(rows)}::jsonb) AS r(
         ats_vendor text, ats_job_id text, title text, location_text text, country text, remote_type text,
         pay_min numeric, pay_max numeric, pay_currency text, pay_period text, pay_source text,
         posted_at timestamptz, apply_url text, description_text text, requirements jsonb,
@@ -77,8 +68,24 @@ async function ingestCompany(sql: Sql, c: CompanyRow, report: IngestReport): Pro
         description_text = EXCLUDED.description_text, requirements = EXCLUDED.requirements,
         sponsorship_text_signal = EXCLUDED.sponsorship_text_signal, integrity = EXCLUDED.integrity,
         status = CASE WHEN mca.job.status = 'stale' THEN 'stale' ELSE 'open' END,
-        last_seen_at = now()`);
-  }
+        last_seen_at = now()`;
+}
+
+async function ingestCompany(sql: Sql, c: CompanyRow, report: IngestReport): Promise<void> {
+  const fresh = await fetchBoard({ vendor: c.ats_vendor, board: c.ats_board, region: c.ats_region });
+  const stored = (await sql`
+    SELECT ats_job_id AS "atsJobId", status, first_seen_at AS "firstSeenAt"
+    FROM mca.job WHERE company_id = ${c.id}`) as StoredJobKey[];
+  const diff = diffBoard(fresh, stored.map((s) => ({ ...s, firstSeenAt: new Date(s.firstSeenAt).toISOString() })));
+
+  const upserts = [...diff.added, ...diff.stillOpen, ...diff.reopened].map(toRecord);
+  // Large boards (Notion's is ~3 MB) go in chunks: one database request has a size limit. Upserts
+  // are idempotent, so a failure part-way is repaired by the next run.
+  const CHUNK = 150;
+  for (let i = 0; i + CHUNK < upserts.length; i += CHUNK) await sql.transaction([upsertJobs(sql, c.id, upserts.slice(i, i + CHUNK))]);
+  const last = upserts.slice(Math.floor(Math.max(0, upserts.length - 1) / CHUNK) * CHUNK);
+  const queries = [];
+  if (last.length) queries.push(upsertJobs(sql, c.id, last));
   if (diff.closedIds.length)
     queries.push(sql`UPDATE mca.job SET status = 'closed' WHERE company_id = ${c.id} AND ats_job_id = ANY(${diff.closedIds}::text[])`);
   if (diff.staleIds.length)

@@ -96,6 +96,17 @@ describe("Fetching job boards", () => {
     expect(fetched.sort()).toEqual(["alpha", "bravo", "charlie"]);
   });
 
+  it("saves a large board in chunks, every job included", async () => {
+    await h.pg.query("UPDATE mca.company SET last_fetched_at = now() - interval '2 hours' WHERE ats_board = 'alpha'");
+    vi.stubGlobal("fetch", async () => new Response(JSON.stringify({
+      jobs: Array.from({ length: 401 }, (_, i) => ({ ...board("alpha").jobs[0], id: 1000 + i, title: `Engineer ${i}` })),
+    }), { status: 200 }));
+    const r = await fetchNow(1000, 60);
+    expect(r).toMatchObject({ boards: 1, errors: [] });
+    const { rows } = await h.pg.query<{ n: number }>("SELECT count(*)::int AS n FROM mca.job j JOIN mca.company c ON c.id = j.company_id WHERE c.ats_board = 'alpha' AND j.status = 'open'");
+    expect(rows[0]!.n).toBe(401); // the old single job closed, 401 new ones open
+  });
+
   it("a failing board is reported and the rest carry on", async () => {
     await h.pg.query("UPDATE mca.company SET last_fetched_at = now() - interval '2 hours'");
     vi.stubGlobal("fetch", async (url: string) =>
