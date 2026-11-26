@@ -3,6 +3,7 @@
 //
 //   node dist/jobs-runner.mjs fetch [--stale-minutes 60]   fetch boards not fetched in that long (0 = all)
 //   node dist/jobs-runner.mjs queues [--user <id>]         build today's queue for one user, or everyone
+//   node dist/jobs-runner.mjs discover [--limit 150]           add job boards for the biggest sponsors not yet tracked
 //   node dist/jobs-runner.mjs gmail                        read new job emails for everyone who linked Gmail
 //
 // Needs INGEST_DATABASE_URL (catalog role) and DATABASE_URL (app role, row-level security), which
@@ -13,6 +14,8 @@ import { appDb } from "../apps/api/src/lib/db.js";
 import { neonTenantDb } from "../apps/api/src/lib/tenant.js";
 import { runAllQueues } from "../apps/api/src/queue.js";
 import { syncGmail } from "../apps/api/src/gmail.js";
+import { discoverCompanies } from "../apps/api/src/discover.js";
+import { appendFileSync } from "node:fs";
 
 const [cmd, ...rest] = process.argv.slice(2);
 const flag = (name: string) => {
@@ -58,10 +61,19 @@ async function gmail() {
   console.log(`Gmail: ${users.length} linked, ${stored} job emails recorded, ${moved} applications moved, ${failed} failed.`);
 }
 
+async function discover() {
+  const r = await discoverCompanies(env, { limit: Number(flag("limit") ?? 150) });
+  console.log(`Discovery: checked ${r.checked} sponsoring employers, added ${r.found} job boards${r.stoppedEarly ? " (stopped early: a job-board system asked us to slow down)" : ""}.`);
+  const summary = process.env.GITHUB_STEP_SUMMARY;
+  if (summary && r.added.length)
+    appendFileSync(summary, `### Companies added\n\n| Company | Job board |\n| --- | --- |\n${r.added.map((a) => `| ${a.name} | ${a.vendor} |`).join("\n")}\n`);
+}
+
 if (cmd === "fetch") await fetchJobs();
+else if (cmd === "discover") await discover();
 else if (cmd === "gmail") await gmail();
 else if (cmd === "queues") await queues();
 else {
-  console.error("usage: jobs-runner.mjs fetch [--stale-minutes N] | queues [--user ID] | gmail");
+  console.error("usage: jobs-runner.mjs fetch [--stale-minutes N] | queues [--user ID] | gmail | discover [--limit N]");
   process.exitCode = 2;
 }

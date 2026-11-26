@@ -99,6 +99,33 @@ Passwords are hashed with PBKDF2-SHA256. `PBKDF2_ITERATIONS = "50000"` takes abo
 inside the Free plan's 10 ms per request. On Workers Paid, raise it to `"100000"`. Existing
 passwords are re-hashed at the next sign-in.
 
+## App address and account email
+
+The app is served at **https://app.mycareeragent.dev** (`routes` in `apps/api/wrangler.toml`); the
+workers.dev address keeps working. Password reset emails come from `noreply@mycareeragent.dev`
+(`MAIL_FROM`) through one of:
+
+- **Resend (free tier).** Create an account at resend.com, add the domain `mycareeragent.dev` there
+  and add the DNS records it shows in Cloudflare DNS, create an API key with "Sending access", and
+  save it as the repository secret `RESEND_API_KEY`, then deploy.
+- **Cloudflare Email Service (Workers Paid).** Compute › Email Service › Email Sending › Onboard
+  Domain › `mycareeragent.dev`, then add `[[send_email]]\nname = "EMAIL"` to `wrangler.toml` and deploy.
+
+Until one is set up, the sign-in page doesn't offer "Forgot your password?".
+
+## Job boards and company discovery
+
+The catalog reads Greenhouse, Lever, Ashby, SmartRecruiters, Workable and Recruitee (see
+`jobs/my_career_agent_jobs/seed_companies.py` for each board's address format). Workday is built
+but currently refuses automated requests from GitHub's servers, so Workday boards return no jobs.
+On the paged systems (Workday, SmartRecruiters) only tech-titled jobs get their description fetched.
+
+**Discover companies** (`.github/workflows/discover.yml`, Sundays and on demand) takes the biggest
+sponsoring employers not yet tracked, tries likely board names on each system, and adds a board
+only if it has open jobs and is really that employer (its own name matches, or for systems without
+a name, the employer's full name is the board name). Added companies have `source = 'discovered'`;
+misses are remembered for 90 days in `mca.board_discovery`.
+
 ## Gmail (instead of a forwarding domain)
 
 "Connect Gmail" (Settings › Job emails) signs the person in with Google and reads job emails with
