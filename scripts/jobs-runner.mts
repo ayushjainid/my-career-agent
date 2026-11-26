@@ -111,6 +111,11 @@ async function catalog() {
   const out = { companies: cos, sponsorsTop: sponsors.filter((s) => Number(s.rank) <= 25), totals,
     checked: (await sql`SELECT count(*)::int AS n, count(found_vendor)::int AS found FROM mca.board_discovery`) };
   writeFileSync("catalog-report.json", JSON.stringify(out, null, 1));
+  // One line per record, so the report can be read straight from the run log.
+  for (const c of cos) console.log(`REPORT company ${JSON.stringify(c)}`);
+  for (const r of out.sponsorsTop) console.log(`REPORT sponsor ${JSON.stringify(r)}`);
+  for (const t of totals) console.log(`REPORT total ${JSON.stringify(t)}`);
+  console.log(`REPORT checked ${JSON.stringify(out.checked)}`);
   console.log(`Catalog: ${cos.length} companies with a job board, ${cos.filter((c) => Number(c.open) > 0).length} with open jobs.`);
 }
 
