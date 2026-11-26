@@ -1,0 +1,23 @@
+name: Catalog report
+# Read-only: every company the catalog tracks, its job board, open jobs by country, why a board
+# shows nothing, and the biggest sponsors not tracked. Public catalog data only, no user data.
+on: workflow_dispatch
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci --no-audit --no-fund
+      - run: npx esbuild scripts/jobs-runner.mts --bundle --platform=node --format=esm --target=node22 --outfile=dist/jobs-runner.mjs --log-level=warning
+      - name: Derive the connection strings
+        run: node scripts/db-urls.mjs
+        env:
+          DATABASE_OWNER_URL: ${{ secrets.DATABASE_OWNER_URL }}
+      - run: node dist/jobs-runner.mjs catalog
+      - uses: actions/upload-artifact@v4
+        with:
+          name: catalog-report
+          path: catalog-report.json
