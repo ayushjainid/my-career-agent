@@ -63,7 +63,8 @@ async function gmail() {
 
 async function discover() {
   const r = await discoverCompanies(env, { limit: Number(flag("limit") ?? 150) });
-  console.log(`Discovery: checked ${r.checked} sponsoring employers, added ${r.found} job boards${r.stoppedEarly ? " (stopped early: a job-board system asked us to slow down)" : ""}.`);
+  console.log(`Discovery: checked ${r.checked} sponsoring employers, added ${r.found} job boards, ${r.unfinished} to finish next run.` +
+    (r.resting.length ? ` Paused after asking us to slow down: ${r.resting.join(", ")}.` : "") + (r.stoppedEarly ? " Stopped early." : ""));
   const summary = process.env.GITHUB_STEP_SUMMARY;
   if (summary && r.added.length)
     appendFileSync(summary, `### Companies added\n\n| Company | Job board |\n| --- | --- |\n${r.added.map((a) => `| ${a.name} | ${a.vendor} |`).join("\n")}\n`);

@@ -45,13 +45,13 @@ function systems(calls: string[]) {
 describe("finding one employer's board", () => {
   it("accepts a named board only when the name matches", async () => {
     const calls: string[] = [];
-    expect(await findBoard("ROBINHOOD MARKETS, INC.", systems(calls))).toMatchObject({ vendor: "greenhouse", board: "robinhood", name: "Robinhood" });
-    expect(await findBoard("GENERAL MOTORS LLC", systems([]))).toBeNull();
+    expect((await findBoard("ROBINHOOD MARKETS, INC.", systems(calls))).hit).toMatchObject({ vendor: "greenhouse", board: "robinhood", name: "Robinhood" });
+    expect((await findBoard("GENERAL MOTORS LLC", systems([]))).hit).toBeNull();
   });
   it("trusts an unnamed board only under the employer's full name", async () => {
-    expect(await findBoard("Acme Analytics LLC", systems([]))).toMatchObject({ vendor: "lever", board: "acmeanalytics" });
-    expect(await findBoard("Acme Analytics Holdings Corp", systems([]))).toMatchObject({ board: "acmeanalytics" }); // "Holdings" is filler
-    expect(await findBoard("Acme Analytics Partners Corp", systems([]))).toBeNull(); // a different name: not trusted unnamed
+    expect((await findBoard("Acme Analytics LLC", systems([]))).hit).toMatchObject({ vendor: "lever", board: "acmeanalytics" });
+    expect((await findBoard("Acme Analytics Holdings Corp", systems([]))).hit).toMatchObject({ board: "acmeanalytics" }); // "Holdings" is filler
+    expect((await findBoard("Acme Analytics Partners Corp", systems([]))).hit).toBeNull(); // a different name: not trusted unnamed
   });
 });
 
@@ -77,7 +77,7 @@ describe("discovery run", () => {
     for (const [name, norm, filings] of [["ROBINHOOD MARKETS, INC.", "ROBINHOOD MARKETS", 300], ["GENERAL MOTORS LLC", "GENERAL MOTORS", 900], ["ACME ANALYTICS LLC", "ACME ANALYTICS", 40]] as const)
       await h.pg.query(`INSERT INTO mca.sponsor_record (country, source, employer_name, employer_norm, filings, certified, period_end) VALUES ('US', 'dol_lca', $1, $2, $3, $3, '2026-09-30')`, [name, norm, filings]);
     const calls: string[] = [];
-    const r = await discoverCompanies(h.env, { fetcher: systems(calls) });
+    const r = await discoverCompanies(h.env, { fetcher: systems(calls), gapMs: 0 });
     expect(r).toMatchObject({ checked: 3, found: 2, stoppedEarly: false });
     const { rows } = await h.pg.query<{ name: string; ats_vendor: string; ats_board: string; aliases: string[]; source: string }>(
       "SELECT name, ats_vendor, ats_board, aliases, source FROM mca.company WHERE source = 'discovered' ORDER BY name");
@@ -89,16 +89,27 @@ describe("discovery run", () => {
     expect(linked[0]!.n).toBe(2);
     // Second run: nothing left to check (GM was a miss, remembered).
     calls.length = 0;
-    expect(await discoverCompanies(h.env, { fetcher: systems(calls) })).toMatchObject({ checked: 0 });
+    expect(await discoverCompanies(h.env, { fetcher: systems(calls), gapMs: 0 })).toMatchObject({ checked: 0 });
     expect(calls).toEqual([]);
+  });
+
+  it("rests only the system that says slow down, and keeps asking the others", async () => {
+    const h = await harness();
+    h.env.TEST_INGEST_SQL = ingestSql(h.pg);
+    await h.pg.query(`INSERT INTO mca.sponsor_record (country, source, employer_name, employer_norm, filings, certified, period_end) VALUES ('US', 'dol_lca', 'ACME ANALYTICS LLC', 'ACME ANALYTICS', 50, 50, '2026-09-30')`);
+    const calls: string[] = [];
+    const base = systems(calls);
+    const fetcher = (async (url: string) => (new URL(url).host === "boards-api.greenhouse.io" ? new Response("", { status: 429 }) : base(url))) as unknown as typeof fetch;
+    const r = await discoverCompanies(h.env, { fetcher, gapMs: 0 });
+    expect(r).toMatchObject({ found: 1, resting: ["greenhouse"] }); // Lever still found Acme
   });
 
   it("stops politely when a system says it's rate-limiting", async () => {
     const h = await harness();
     h.env.TEST_INGEST_SQL = ingestSql(h.pg);
     await h.pg.query(`INSERT INTO mca.sponsor_record (country, source, employer_name, employer_norm, filings, certified, period_end) VALUES ('US', 'dol_lca', 'ZETA LABS INC', 'ZETA LABS', 50, 50, '2026-09-30')`);
-    const r = await discoverCompanies(h.env, { fetcher: (async () => new Response("", { status: 429 })) as unknown as typeof fetch });
-    expect(r.stoppedEarly).toBe(true);
+    const r = await discoverCompanies(h.env, { fetcher: (async () => new Response("", { status: 429 })) as unknown as typeof fetch, gapMs: 0 });
+    expect(r).toMatchObject({ unfinished: 1, found: 0 });
     const { rows } = await h.pg.query<{ n: number }>("SELECT count(*)::int AS n FROM mca.board_discovery");
     expect(rows[0]!.n).toBe(0); // not marked as a miss: it'll be checked again
   });

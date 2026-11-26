@@ -44,10 +44,11 @@ export function sameCompany(boardName: string, employer: string): boolean {
   return short.length >= 4 && long.startsWith(short) && short.length / long.length >= 0.5;
 }
 
+export class SlowDown extends Error {}
 async function getJson(url: string, f: typeof fetch): Promise<unknown | null> {
   const r = await f(url, { headers: UA });
   if (r.status === 404 || r.status === 410 || r.status === 400) return null;
-  if (r.status === 429) throw new Error("rate limited");
+  if (r.status === 429 || r.status === 503) throw new SlowDown(new URL(url).host);
   if (!r.ok) return null;
   return r.json().catch(() => null);
 }
@@ -91,29 +92,40 @@ export async function probe(vendor: Vendor, slug: string, f: typeof fetch = fetc
 const ORDER: Vendor[] = ["greenhouse", "lever", "ashby", "workable", "smartrecruiters", "recruitee"];
 const NAMED = new Set<Vendor>(["greenhouse", "workable", "smartrecruiters"]);
 
-/** Finds one employer's board, or null. */
-export async function findBoard(employer: string, f: typeof fetch = fetch): Promise<{ vendor: Vendor; board: string; name: string; jobs: number; tried: number } | null> {
-  let tried = 0;
+export interface FindResult { hit: { vendor: Vendor; board: string; name: string; jobs: number } | null; tried: number; skipped: boolean }
+const pause = (ms: number) => new Promise((ok) => setTimeout(ok, ms));
+
+/**
+ * Finds one employer's board. A system that answers "slow down" is added to `resting` and skipped
+ * for the rest of the run; an employer with a skipped system isn't a confirmed miss.
+ */
+export async function findBoard(employer: string, f: typeof fetch = fetch, resting = new Set<Vendor>(), gapMs = 0): Promise<FindResult> {
+  let tried = 0, skipped = false;
   for (const { slug, full } of slugsFor(employer)) {
     for (const vendor of ORDER) {
       // Without a name to check, only the employer's full name is trusted as the board name.
       if (!full && !NAMED.has(vendor)) continue;
+      if (resting.has(vendor)) { skipped = true; continue; }
       tried++;
-      const p = await probe(vendor, slug, f).catch((e) => { if ((e as Error).message === "rate limited") throw e; return null; });
+      if (gapMs) await pause(gapMs);
+      const p = await probe(vendor, slug, f).catch((e) => {
+        if (e instanceof SlowDown) { resting.add(vendor); skipped = true; }
+        return null;
+      });
       if (!p || p.jobs < 1) continue;
       if (p.name !== null && !sameCompany(p.name, employer)) continue;
       if (p.name === null && !full) continue;
-      return { vendor, board: slug, name: p.name ?? employer, jobs: p.jobs, tried };
+      return { hit: { vendor, board: slug, name: p.name ?? employer, jobs: p.jobs }, tried, skipped };
     }
   }
-  return null;
+  return { hit: null, tried, skipped };
 }
 
 const pretty = (s: string) => normalizeCompanyName(s).toLowerCase().replace(/\b[a-z]/g, (c) => c.toUpperCase());
 
-export interface DiscoverReport { checked: number; found: number; added: Array<{ name: string; vendor: string }>; stoppedEarly: boolean }
+export interface DiscoverReport { checked: number; found: number; added: Array<{ name: string; vendor: string }>; stoppedEarly: boolean; resting: string[]; unfinished: number }
 
-export async function discoverCompanies(env: Env, opts: { limit?: number; fetcher?: typeof fetch } = {}): Promise<DiscoverReport> {
+export async function discoverCompanies(env: Env, opts: { limit?: number; fetcher?: typeof fetch; gapMs?: number } = {}): Promise<DiscoverReport> {
   const sql: Sql = env.TEST_INGEST_SQL ?? appDb(env.INGEST_DATABASE_URL);
   const f = opts.fetcher ?? fetch;
   const candidates = (await sql`
@@ -126,15 +138,17 @@ export async function discoverCompanies(env: Env, opts: { limit?: number; fetche
     ORDER BY sum(s.filings) DESC
     LIMIT ${opts.limit ?? 150}`) as Array<{ employer_norm: string; employer_name: string; filings: number }>;
 
-  const report: DiscoverReport = { checked: 0, found: 0, added: [], stoppedEarly: false };
+  const report: DiscoverReport = { checked: 0, found: 0, added: [], stoppedEarly: false, resting: [], unfinished: 0 };
+  const resting = new Set<Vendor>();
   let i = 0;
   const worker = async () => {
-    while (i < candidates.length && !report.stoppedEarly) {
+    while (i < candidates.length) {
+      // Every system asked us to slow down: stop; the rest wait for next week.
+      if (resting.size === ORDER.length) { report.stoppedEarly = true; return; }
       const c = candidates[i++]!;
-      let hit: Awaited<ReturnType<typeof findBoard>> = null;
-      try { hit = await findBoard(c.employer_name, f); }
-      catch { report.stoppedEarly = true; return; } // a system is rate-limiting us: stop and try again next week
+      const { hit, skipped, tried } = await findBoard(c.employer_name, f, resting, opts.gapMs ?? 300);
       report.checked++;
+      if (!hit && skipped) { report.unfinished++; continue; } // not every system was asked: not a miss
       if (!hit) {
         await sql`INSERT INTO mca.board_discovery (employer_norm, checked_at) VALUES (${c.employer_norm}, now())
                   ON CONFLICT (employer_norm) DO UPDATE SET checked_at = now(), found_vendor = NULL, found_board = NULL`;
@@ -152,7 +166,7 @@ export async function discoverCompanies(env: Env, opts: { limit?: number; fetche
       await sql.transaction([
         sql`UPDATE mca.sponsor_record SET company_id = ${row!.id}::uuid WHERE company_id IS NULL AND employer_norm = ${c.employer_norm}`,
         sql`INSERT INTO mca.board_discovery (employer_norm, checked_at, found_vendor, found_board, company_id, tried)
-            VALUES (${c.employer_norm}, now(), ${hit.vendor}, ${hit.board}, ${row!.id}::uuid, ${hit.tried})
+            VALUES (${c.employer_norm}, now(), ${hit.vendor}, ${hit.board}, ${row!.id}::uuid, ${tried})
             ON CONFLICT (employer_norm) DO UPDATE SET checked_at = now(), found_vendor = EXCLUDED.found_vendor, found_board = EXCLUDED.found_board,
               company_id = EXCLUDED.company_id, tried = EXCLUDED.tried`,
       ]);
@@ -161,5 +175,6 @@ export async function discoverCompanies(env: Env, opts: { limit?: number; fetche
     }
   };
   await Promise.all([worker(), worker(), worker(), worker()]);
+  report.resting = [...resting];
   return report;
 }
