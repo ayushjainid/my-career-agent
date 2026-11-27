@@ -1,0 +1,29 @@
+name: Find boards on career sites
+# Daily: for the biggest uncovered tech sponsors, find the company's website from its name, open its
+# careers pages (robots.txt first) and add the job boards they link to once they answer with jobs.
+on:
+  schedule:
+    - cron: "23 6 * * *"
+  workflow_dispatch:
+    inputs:
+      limit: { description: "How many employers to check", default: "200" }
+concurrency:
+  group: detect
+  cancel-in-progress: false
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci --no-audit --no-fund
+      - run: npx esbuild scripts/jobs-runner.mts --bundle --platform=node --format=esm --target=node22 --outfile=dist/jobs-runner.mjs --log-level=warning
+      - name: Derive the connection strings
+        run: node scripts/db-urls.mjs
+        env:
+          DATABASE_OWNER_URL: ${{ secrets.DATABASE_OWNER_URL }}
+      - run: node dist/jobs-runner.mjs detect --limit "${LIMIT:-200}"
+        env:
+          LIMIT: ${{ inputs.limit }}

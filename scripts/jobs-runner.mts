@@ -6,7 +6,7 @@
 //   node dist/jobs-runner.mjs discover [--limit 150]           add job boards for the biggest sponsors not yet tracked
 //   node dist/jobs-runner.mjs catalog                      report: every company, its board, open jobs by country, and what can't be read
 //   node dist/jobs-runner.mjs coverage [--gaps 60]         coverage KPI per country against the sponsor lists, plus the biggest gaps
-//   node dist/jobs-runner.mjs detect [--limit 200]         find job boards through employers' own careers pages (Wikidata website)
+//   node dist/jobs-runner.mjs detect [--limit 200]         find job boards through employers' own careers pages
 //   node dist/jobs-runner.mjs gmail                        read new job emails for everyone who linked Gmail
 //
 // Needs INGEST_DATABASE_URL (catalog role) and DATABASE_URL (app role, row-level security), which
@@ -236,7 +236,7 @@ async function sponsors() {
 
 async function detectSites() {
   const r = await detectCompanies(env, { limit: Number(flag("limit") ?? 200) });
-  console.log(`Career sites: checked ${r.checked} employers, added ${r.added.length} boards; ${r.workdayOnly} link only to Workday; ${r.noSite} had no website on Wikidata.`);
+  console.log(`Career sites: checked ${r.checked} employers, added ${r.added.length} boards; ${r.workdayOnly} link only to Workday; ${r.noSite} had no website found.`);
   for (const a of r.added) console.log(`ADDED ${JSON.stringify(a)}`);
   const summary = process.env.GITHUB_STEP_SUMMARY;
   if (summary && r.added.length)
