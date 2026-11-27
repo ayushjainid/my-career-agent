@@ -166,6 +166,8 @@ export async function fetchEightfold(board: string, opts: FetchOpts & { gapMs?: 
       }
       const data = isObj(body) && isObj(body.data) ? body.data : isObj(body) ? body : {};
       const list = Array.isArray(data.positions) ? data.positions.filter(isObj) : [];
+      // Sites on Eightfold's older API answer the newer one with an empty list.
+      if (pcsx && page === 0 && !list.length) { pcsx = false; page--; continue; }
       if (reported === null) reported = num(data.count) ?? num(data.total) ?? num(data.totalCount);
       for (const x of list) { const it = efItem(x, p.host); if (it) items.push(it); }
       start += list.length;

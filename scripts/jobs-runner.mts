@@ -169,9 +169,20 @@ async function coverage() {
   if (summary) appendFileSync(summary, md);
 }
 
+/** Sponsor employer names matching a pattern, with filings: for curating company aliases. */
+async function sponsors() {
+  const sql = appDb(env.INGEST_DATABASE_URL);
+  for (const pat of (flag("match") ?? "").split(",").filter(Boolean)) {
+    const rows = (await sql`SELECT country, employer_norm, max(employer_name) AS name, sum(filings)::int AS filings FROM mca.sponsor_record
+      WHERE employer_norm ~ ${pat} GROUP BY 1, 2 ORDER BY filings DESC LIMIT 25`) as Array<Record<string, unknown>>;
+    for (const r of rows) console.log(`SPONSOR ${pat} ${JSON.stringify(r)}`);
+  }
+}
+
 if (cmd === "fetch") await fetchJobs();
 else if (cmd === "catalog") await catalog();
 else if (cmd === "coverage") await coverage();
+else if (cmd === "sponsors") await sponsors();
 else if (cmd === "discover") await discover();
 else if (cmd === "gmail") await gmail();
 else if (cmd === "queues") await queues();
