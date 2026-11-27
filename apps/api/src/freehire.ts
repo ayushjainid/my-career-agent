@@ -16,7 +16,8 @@ import { toRecord } from "./ingest.js";
 
 export const FREEHIRE_API = "https://freehire.me";
 const UA = { "user-agent": "my-career-agent/job-sync/0.1 (+https://github.com/ayushjainid/my-career-agent)", accept: "application/json" };
-export const FREEHIRE_COUNTRIES = ["us", "gb", "ie", "ca", "it"];
+// Smaller markets first, so a run cut short still covers them; the US is by far the largest.
+export const FREEHIRE_COUNTRIES = ["ie", "it", "ca", "gb", "us"];
 export const FREEHIRE_CATEGORIES = ["software_engineering", "backend", "frontend", "fullstack", "mobile", "devops", "sre", "ml_ai", "ai_engineering",
   "data_engineering", "data_science", "data_analytics", "qa", "security", "embedded", "system_administration", "network_engineering", "solutions_engineering",
   "architecture", "product", "developer_relations", "technical_writing", "it_support", "hardware"];
