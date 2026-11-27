@@ -20,7 +20,8 @@ for (const line of lines) {
       const text = await r.text();
       Object.assign(out, { status: r.status, type: r.headers.get("content-type"), bytes: text.length, ms: Date.now() - t, final: r.url !== url ? r.url : undefined,
         retryAfter: r.headers.get("retry-after") ?? undefined, jsonld: /"@type"\s*:\s*"JobPosting"/.test(text) || undefined,
-        head: text.replace(/\s+/g, " ").slice(0, 400) });
+        head: text.replace(/\s+/g, " ").slice(0, Number(process.env.PROBE_CHARS ?? 400)),
+        ld: [...text.matchAll(/<script[^>]*application\/ld\+json[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]!.replace(/\s+/g, " ").slice(0, 2500)).slice(0, 2) });
     }
   } catch (e) { out.error = (e as Error).message; }
   console.log(`PROBE ${JSON.stringify(out)}`);
