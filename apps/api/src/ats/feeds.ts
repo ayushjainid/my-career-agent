@@ -28,6 +28,7 @@ const iso = (v: unknown): string | null => (typeof v === "string" && !Number.isN
 
 async function get(url: string, f: typeof fetch, accept = "application/json"): Promise<Response> {
   const r = await f(url, { headers: { ...UA, accept }, redirect: "follow" });
+  if (!r.ok) await r.body?.cancel().catch(() => {}); // an unread body can crash Node's HTTP client
   if (r.status === 404 || r.status === 410) throw new BoardGoneError(`${url} not found`);
   if (r.status === 429 || r.status === 403 || r.status === 503) throw new SlowDownError(`${new URL(url).host} HTTP ${r.status}`);
   if (!r.ok) throw new Error(`${new URL(url).host} HTTP ${r.status}`);

@@ -22,6 +22,15 @@ import { fetchAny } from "../apps/api/src/ats/adapters.js";
 import type { AtsVendor } from "@my-career-agent/core";
 
 const [cmd, ...rest] = process.argv.slice(2);
+// Node's HTTP client (undici) can throw an internal assertion from a socket event when a site
+// closes a connection mid-response; that one request fails, not the whole run.
+process.on("uncaughtException", (e) => {
+  if (e instanceof Error && /ERR_ASSERTION|paused/.test(`${(e as { code?: string }).code ?? ""} ${e.message}`)) {
+    console.log(`::warning::A connection failed inside the HTTP client: ${e.message.split("\n")[0]}`);
+    return;
+  }
+  throw e;
+});
 const flag = (name: string) => {
   const i = rest.indexOf(`--${name}`);
   return i === -1 ? undefined : rest[i + 1];

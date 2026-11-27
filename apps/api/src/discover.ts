@@ -48,6 +48,7 @@ export function sameCompany(boardName: string, employer: string): boolean {
 export class SlowDown extends Error {}
 async function getJson(url: string, f: typeof fetch): Promise<unknown | null> {
   const r = await f(url, { headers: UA });
+  if (!r.ok) await r.body?.cancel().catch(() => {}); // an unread body can crash Node's HTTP client
   if (r.status === 404 || r.status === 410 || r.status === 400) return null;
   if (r.status === 429 || r.status === 503) throw new SlowDown(new URL(url).host);
   if (!r.ok) return null;
@@ -95,6 +96,7 @@ export async function probe(vendor: Vendor, slug: string, f: typeof fetch = fetc
     case "personio": {
       if (!/^[a-z0-9-]+$/.test(slug)) return null;
       const r = await f(`https://${slug}.jobs.personio.de/xml?language=en`, { headers: UA });
+      if (!r.ok) await r.body?.cancel().catch(() => {});
       if (r.status === 429 || r.status === 503) throw new SlowDown(`${slug}.jobs.personio.de`);
       if (!r.ok) return null;
       const xml = await r.text();

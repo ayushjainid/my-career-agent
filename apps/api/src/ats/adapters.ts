@@ -71,6 +71,7 @@ export async function fetchBoard(ref: BoardRef, fetcher: typeof fetch = fetch): 
   });
   // A 404 means the board was removed or renamed. Throw rather than return [], so ingestion
   // never mass-closes a company's jobs because of a bad board token.
+  if (!res.ok) await res.body?.cancel().catch(() => {}); // an unread body can crash Node's HTTP client
   if (res.status === 404) throw new BoardNotFoundError(`${ref.vendor}:${ref.board} not found`);
   if (!res.ok) throw new Error(`${ref.vendor}:${ref.board} HTTP ${res.status}`);
   const body: unknown = await res.json();

@@ -63,6 +63,7 @@ function remoteFrom(...hints: Array<string | null | undefined | boolean>): Remot
 }
 async function getJson(url: string, f: typeof fetch, init: RequestInit = {}): Promise<unknown> {
   const r = await f(url, { ...init, headers: { ...UA, ...(init.headers as Record<string, string> | undefined) } });
+  if (!r.ok) await r.body?.cancel().catch(() => {}); // an unread body can crash Node's HTTP client
   if (r.status === 404 || r.status === 410) throw new BoardGoneError(`${url} not found`);
   if (!r.ok) throw new Error(`${new URL(url).host} HTTP ${r.status}`);
   return r.json();

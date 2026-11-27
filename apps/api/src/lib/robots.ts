@@ -74,6 +74,7 @@ export async function robotsAllows(url: string, f: typeof fetch = fetch): Promis
     cache.set(key, (async () => {
       try {
         const r = await f(`${u.origin}/robots.txt`, { headers: { "user-agent": `${BOT_NAME}/0.1 (+https://github.com/ayushjainid/my-career-agent)` }, redirect: "follow" });
+        if (!r.ok) await r.body?.cancel().catch(() => {});
         if (r.status >= 400 && r.status < 500) return { rules: [], delayMs: 0 };
         if (!r.ok) return "deny-all";
         return parseRobotsFull(await r.text());

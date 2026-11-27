@@ -28,6 +28,7 @@ export class SlowDownError extends Error {}
 /** One polite GET/POST: spaced out by the caller; 429/403/503 stop the board for this run. */
 async function getJson(url: string, f: typeof fetch, init: RequestInit = {}): Promise<unknown> {
   const r = await f(url, { ...init, headers: { ...UA, ...(init.headers as Record<string, string> | undefined) } });
+  if (!r.ok) await r.body?.cancel().catch(() => {}); // an unread body can crash Node's HTTP client
   if (r.status === 404 || r.status === 410) throw new BoardGoneError(`${url} not found`);
   if (r.status === 429 || r.status === 403 || r.status === 503) throw new SlowDownError(`${new URL(url).host} HTTP ${r.status}`);
   if (!r.ok) throw new Error(`${new URL(url).host} HTTP ${r.status}`);
