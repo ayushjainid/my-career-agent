@@ -148,7 +148,8 @@ export async function fetchEightfold(board: string, opts: FetchOpts & { gapMs?: 
   const p = eightfoldParts(board);
   if (!p) throw new Error(`eightfold board "${board}" should look like host|domain`);
   const f = opts.fetcher ?? fetch;
-  const gap = opts.gapMs ?? paceMs(400);
+  // Eightfold sites rate-limit quickly (Microsoft answered 429 after a few hundred requests).
+  const gap = opts.gapMs ?? paceMs(1500);
   const items: EfItem[] = [];
   let complete = false, reported: number | null = null, pcsx = true;
   const maxPages = opts.maxPages ?? 400;
@@ -188,6 +189,7 @@ export async function fetchEightfold(board: string, opts: FetchOpts & { gapMs?: 
   }
   const cap = opts.maxDetails ?? 200;
   const jobs: NormalizedJob[] = [];
+  let lastError: string | undefined;
   for (const it of todo.slice(0, cap)) {
     let desc = it.desc;
     let url = it.url;
@@ -200,6 +202,7 @@ export async function fetchEightfold(board: string, opts: FetchOpts & { gapMs?: 
         desc = str(dd.jobDescription) ?? str(dd.job_description);
         url = str(dd.publicUrl) ?? str(dd.canonicalPositionUrl) ?? url;
       } catch (e) {
+        lastError = (e as Error).message;
         if (e instanceof SlowDownError) { complete = false; break; }
         continue;
       }
@@ -211,7 +214,7 @@ export async function fetchEightfold(board: string, opts: FetchOpts & { gapMs?: 
       pay: parsePayFromText(text), postedAt: it.posted, applyUrl: url ?? `https://${p.host}/careers/job/${it.id}`, descriptionText: text, integrity });
   }
   // Completeness is about the listing: a job whose details failed simply isn't stored yet.
-  return { jobs, touch, complete };
+  return { jobs, touch, complete, listed: items.length, sample: [`todo ${todo.length}`, `pcsx ${pcsx}`, ...(lastError ? [lastError] : [])] };
 }
 
 // ------------------------------------------------------------------ Oracle Recruiting Cloud
