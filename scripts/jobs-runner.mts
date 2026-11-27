@@ -252,6 +252,7 @@ async function coverage() {
       console.log(`GAP ${country} ${JSON.stringify({ rank: Number(r.rank), name: r.name, norm: r.employer_norm, filings: Number(r.filings), checked: r.checked })}`);
   }
   // Italy has no sponsor register, so no coverage share: report what the catalog holds instead.
+  const MILAN = String.raw`\y(milan|milano)\y`;
   const [it] = (await sql`
     SELECT count(*)::int AS jobs, count(DISTINCT j.company_id)::int AS companies,
            count(*) FILTER (WHERE j.location_text ~* '\y(milan|milano)\y')::int AS milan_jobs,
