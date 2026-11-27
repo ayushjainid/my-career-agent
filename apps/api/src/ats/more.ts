@@ -12,6 +12,7 @@
 
 import { parsePayFromText, type NormalizedJob, type PayRange, type RemoteType } from "@my-career-agent/core";
 import { guardedDescription } from "../lib/html.js";
+import { paceMs } from "../lib/robots.js";
 
 export class BoardGoneError extends Error {}
 
@@ -115,12 +116,22 @@ export async function fetchWorkday(board: string, opts: FetchOpts = {}): Promise
   // reached (a hiccup, a rate limit) must never read as "these jobs are gone".
   let reported: number | null = null;
   let ended = false;
+  const gap = (opts as { gapMs?: number }).gapMs ?? paceMs(600);
+  let refused = false;
   for (let page = 0; page < maxPages; page++) {
-    const body = await getJson(`${api}/jobs`, f, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ appliedFacets: {}, limit: 20, offset: page * 20, searchText: "" }),
-    });
+    let body: unknown;
+    try {
+      body = await getJson(`${api}/jobs`, f, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ appliedFacets: {}, limit: 20, offset: page * 20, searchText: "" }),
+      });
+    } catch (e) {
+      // Workday answers bursts with 429: stop here, keep what was read, and close nothing.
+      if (page > 0 && /HTTP (429|403|503)/.test((e as Error).message)) { refused = true; break; }
+      throw e;
+    }
+    if (gap) await new Promise((r) => setTimeout(r, gap));
     const posts = isObj(body) && Array.isArray(body.jobPostings) ? body.jobPostings.filter(isObj) : [];
     if (page === 0 && isObj(body)) reported = num(body.total);
     for (const j of posts) {
@@ -128,9 +139,11 @@ export async function fetchWorkday(board: string, opts: FetchOpts = {}): Promise
       if (title && path) items.push({ title, externalPath: path, locationsText: str(j.locationsText) ?? undefined });
     }
     if (posts.length < 20) { ended = true; break; }
-    if (reported !== null && items.length >= reported) { ended = true; break; }
+    if (reported !== null && items.length >= Math.min(reported, 2000)) { ended = true; break; }
   }
-  const complete = ended && (reported === null ? items.length > 0 : items.length >= reported);
+  // Workday's search stops at 2,000 results (past that it starts again from page 1), so a reported
+  // total of 2,000 or more means the listing is cut short.
+  const complete = !refused && ended && (reported === null ? items.length > 0 : items.length >= reported && reported < 2000);
   // The id stored is the requisition id from the detail; the list's bulletFields usually carry it
   // too, but not reliably, so known jobs are matched by their path instead.
   const known = opts.known ?? new Set<string>();
@@ -141,12 +154,18 @@ export async function fetchWorkday(board: string, opts: FetchOpts = {}): Promise
     else if (TECH_TITLE.test(it.title)) todo.push(it);
   }
   const base = `https://${p.host}/en-US/${p.site}`;
-  const details = await mapLimit(todo.slice(0, opts.maxDetails ?? 150), 4, async (it) => {
-    try { return parseWorkdayDetail(await getJson(`${api}${it.externalPath}`, f), it, base); } catch { return null; }
+  let slowed = false;
+  const details = await mapLimit(todo.slice(0, opts.maxDetails ?? 150), 2, async (it) => {
+    if (slowed) return null;
+    try {
+      const d = parseWorkdayDetail(await getJson(`${api}${it.externalPath}`, f), it, base);
+      if (gap) await new Promise((r) => setTimeout(r, gap));
+      return d;
+    } catch (e) { if (/HTTP (429|403|503)/.test((e as Error).message)) slowed = true; return null; }
   });
   // Workday jobs are keyed by their path, which is stable and what the list returns.
   const jobs = details.flatMap((j, k) => (j ? [{ ...j, atsJobId: todo[k]!.externalPath }] : []));
-  return { jobs, touch, complete: complete && todo.length <= (opts.maxDetails ?? 150) };
+  return { jobs, touch, complete };
 }
 
 // ------------------------------------------------------------------ SmartRecruiters

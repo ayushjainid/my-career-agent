@@ -4,6 +4,8 @@
 //   Ashby:      https://developers.ashbyhq.com/docs/public-job-posting-api
 // Parsers are tolerant: unknown or missing fields degrade to null rather than throwing.
 
+import { politeFetch } from "../lib/robots.js";
+import { fetchAmazon, fetchEightfold, fetchOracle } from "./sites.js";
 import { parsePayFromText, type AtsVendor, type NormalizedJob, type PayRange, type RemoteType } from "@my-career-agent/core";
 import { guardedDescription } from "../lib/html.js";
 import { BoardGoneError, fetchRecruitee, fetchSmartRecruiters, fetchWorkable, fetchWorkday, type BoardResult, type FetchOpts } from "./more.js";
@@ -31,17 +33,23 @@ export function boardUrl(ref: BoardRef): string {
 }
 
 /** Every system the catalog can read. Workday and SmartRecruiters also need the stored ids. */
-export const SUPPORTED_VENDORS = ["greenhouse", "lever", "ashby", "workday", "smartrecruiters", "workable", "recruitee"] as const;
-export const NEEDS_KNOWN = new Set(["workday", "smartrecruiters"]);
+// SmartRecruiters is not fetched: api.smartrecruiters.com's robots.txt closes it to every bot but LinkedIn's.
+export const SUPPORTED_VENDORS = ["greenhouse", "lever", "ashby", "workday", "workable", "recruitee", "amazon", "eightfold", "oracle"] as const;
+export const NEEDS_KNOWN = new Set(["workday", "smartrecruiters", "eightfold", "oracle"]);
 
 /** Any supported board, in one shape: jobs with details, ids only seen, and whether the list was complete. */
 export async function fetchAny(ref: BoardRef, opts: FetchOpts = {}): Promise<BoardResult> {
+  // Live fetches honour robots.txt; tests pass their own fetcher.
+  opts = { ...opts, fetcher: opts.fetcher ?? politeFetch(fetch) };
   try {
     switch (ref.vendor) {
       case "workday": return await fetchWorkday(ref.board, opts);
       case "smartrecruiters": return await fetchSmartRecruiters(ref.board, opts);
       case "workable": return await fetchWorkable(ref.board, opts);
       case "recruitee": return await fetchRecruitee(ref.board, opts);
+      case "amazon": return await fetchAmazon(ref.board, opts);
+      case "eightfold": return await fetchEightfold(ref.board, opts);
+      case "oracle": return await fetchOracle(ref.board, opts);
       default: return { jobs: await fetchBoard(ref, opts.fetcher), touch: [], complete: true };
     }
   } catch (e) {

@@ -72,3 +72,21 @@ export async function robotsAllows(url: string, f: typeof fetch = fetch): Promis
   const rules = await cache.get(key)!;
   return rules === "deny-all" ? false : allowedBy(rules, u.pathname + u.search);
 }
+
+export class RobotsDisallowedError extends Error {}
+
+/** A fetch that refuses URLs the site's robots.txt closes to our bot. */
+export function politeFetch(base: typeof fetch = fetch): typeof fetch {
+  return (async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (typeof process !== "undefined" && process.env?.MCA_SKIP_ROBOTS === "1") return base(input, init);
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    if (!(await robotsAllows(url, base))) throw new RobotsDisallowedError(`${new URL(url).host}: robots.txt asks bots not to fetch ${new URL(url).pathname}`);
+    return base(input, init);
+  }) as typeof fetch;
+}
+
+/** Gap between requests to one site; MCA_PACE_MS overrides it (tests set 0). */
+export function paceMs(fallback: number): number {
+  const v = typeof process !== "undefined" ? process.env?.MCA_PACE_MS : undefined;
+  return v !== undefined && v !== "" && Number.isFinite(Number(v)) ? Number(v) : fallback;
+}

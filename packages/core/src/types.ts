@@ -3,7 +3,7 @@
 export type Seniority = "entry" | "mid" | "senior" | "lead" | "executive";
 export type RemoteType = "remote" | "hybrid" | "onsite" | "unknown";
 export type Tier = "warmup" | "mid" | "dream";
-export type AtsVendor = "greenhouse" | "lever" | "ashby" | "smartrecruiters" | "workable" | "workday" | "recruitee";
+export type AtsVendor = "greenhouse" | "lever" | "ashby" | "smartrecruiters" | "workable" | "workday" | "recruitee" | "amazon" | "eightfold" | "oracle";
 
 /** A job as produced by any ATS adapter, before it is stored. */
 export interface NormalizedJob {

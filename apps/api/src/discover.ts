@@ -8,6 +8,7 @@
 // isn't retried for 90 days. Runs weekly on GitHub (jobs-runner discover), politely: one employer
 // at a time per worker, four workers.
 
+import { politeFetch } from "./lib/robots.js";
 import { normalizeCompanyName } from "@my-career-agent/core";
 import type { Env } from "./env.js";
 import { appDb, type Sql } from "./lib/db.js";
@@ -89,7 +90,8 @@ export async function probe(vendor: Vendor, slug: string, f: typeof fetch = fetc
   }
 }
 
-const ORDER: Vendor[] = ["greenhouse", "lever", "ashby", "workable", "smartrecruiters", "recruitee"];
+// SmartRecruiters left out: its API host's robots.txt closes it to us.
+const ORDER: Vendor[] = ["greenhouse", "lever", "ashby", "workable", "recruitee"];
 const NAMED = new Set<Vendor>(["greenhouse", "workable", "smartrecruiters"]);
 
 export interface FindResult { hit: { vendor: Vendor; board: string; name: string; jobs: number } | null; tried: number; skipped: boolean }
@@ -127,7 +129,7 @@ export interface DiscoverReport { checked: number; found: number; added: Array<{
 
 export async function discoverCompanies(env: Env, opts: { limit?: number; fetcher?: typeof fetch; gapMs?: number } = {}): Promise<DiscoverReport> {
   const sql: Sql = env.TEST_INGEST_SQL ?? appDb(env.INGEST_DATABASE_URL);
-  const f = opts.fetcher ?? fetch;
+  const f = opts.fetcher ?? politeFetch(fetch);
   const candidates = (await sql`
     SELECT s.employer_norm, max(s.employer_name) AS employer_name, sum(s.filings)::int AS filings
     FROM mca.sponsor_record s
