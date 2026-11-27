@@ -22,6 +22,8 @@ export interface BoardResult {
   touch: string[];
   /** False when the listing wasn't read to the end: don't close anything. */
   complete: boolean;
+  /** How many jobs the listing had (for probes), when the reader knows. */
+  listed?: number;
 }
 export interface FetchOpts {
   /** Open job ids already stored for this company (their details aren't fetched again). */

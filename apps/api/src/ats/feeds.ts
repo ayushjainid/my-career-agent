@@ -162,7 +162,7 @@ export async function fetchSitemap(board: string, opts: FetchOpts & { gapMs?: nu
     const n = jp && fromJobPosting(jp, "sitemap", new URL(url).pathname, url);
     if (n && inTarget(n.country)) out.push(n.job);
   }
-  return { jobs: out, touch, complete: complete && jobs.length > 0 };
+  return { jobs: out, touch, complete: complete && jobs.length > 0, listed: jobs.length };
 }
 
 // ------------------------------------------------------------------ Teamtailor
