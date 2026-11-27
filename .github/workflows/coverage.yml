@@ -2,6 +2,8 @@ name: Coverage KPI
 # Coverage KPI per country against the government sponsor lists, and the biggest uncovered employers.
 # Public catalog data only, no user data. Each run stores a snapshot in mca.coverage_snapshot.
 on:
+  schedule:
+    - cron: "37 10 * * *"   # daily, after discovery (04:41) and the career-site detector (06:23)
   workflow_dispatch:
     inputs:
       gaps: { description: 'Biggest uncovered employers to list per country', default: '60' }
