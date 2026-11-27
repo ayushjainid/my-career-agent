@@ -1,3 +1,6 @@
-GET https://www.wikidata.org/w/api.php?action=wbsearchentities&search=cognizant&language=en&type=item&limit=3&format=json
-GET https://query.wikidata.org/sparql?format=json&query=SELECT%20%3Fs%20WHERE%20%7Bwd%3AQ312%20wdt%3AP856%20%3Fs%7D
-GET https://www.wikidata.org/wiki/Special:EntityData/Q312.json
+GET https://apply.deloitte.com/careers/SearchJobs/feed/
+GET https://apply.deloitte.com/en_US/careers/SearchJobs/feed/?jobRecordsPerPage=5
+GET https://ibmglobal.avature.net/en_US/careers/SearchJobs/feed/
+GET https://bloomberg.avature.net/careers/SearchJobs/feed/
+GET https://www.accenture.com/robots.txt
+GET https://www.google.com/about/careers/applications/robots.txt
