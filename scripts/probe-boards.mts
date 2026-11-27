@@ -11,7 +11,7 @@ for (const arg of process.argv.slice(2)) {
   try {
     const r = await fetchAny({ vendor: vendor as AtsVendor, board }, { maxDetails: 3, maxPages: 3 });
     const j = r.jobs[0];
-    console.log(JSON.stringify({ board: arg, ok: true, jobs: r.jobs.length, touch: r.touch.length, listed: r.listed, complete: r.complete, ms: Date.now() - t,
+    console.log(JSON.stringify({ board: arg, ok: true, jobs: r.jobs.length, touch: r.touch.length, listed: r.listed, urls: r.sample, complete: r.complete, ms: Date.now() - t,
       sample: j && { id: j.atsJobId, title: j.title, location: j.locationText, posted: j.postedAt, apply: j.applyUrl, pay: j.pay, remote: j.remoteType, text: j.descriptionText.slice(0, 160) } }));
   } catch (e) {
     console.log(JSON.stringify({ board: arg, ok: false, error: (e as Error).message, ms: Date.now() - t }));

@@ -24,6 +24,8 @@ export interface BoardResult {
   complete: boolean;
   /** How many jobs the listing had (for probes), when the reader knows. */
   listed?: number;
+  /** A few job addresses the reader would fetch next (for probes). */
+  sample?: string[];
 }
 export interface FetchOpts {
   /** Open job ids already stored for this company (their details aren't fetched again). */
