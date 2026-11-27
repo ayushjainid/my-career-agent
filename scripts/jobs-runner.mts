@@ -128,8 +128,30 @@ async function catalog() {
  */
 const NON_TECH = String.raw`\y(HOSPITALS?|HEALTH|HEALTHCARE|HSE|NHS|NURSING|NURSES?|CARE|CARERS|CLINICS?|MEDICAL|PHARMACY|PHARMACIES|DENTAL|DENTISTS?|SURGERY|DOCTORS?|VETERINARY|MEATS?|FOODS?|FARMS?|FARMING|RESTAURANTS?|HOTELS?|CATERING|TAKEAWAY|BAKERY|DAIRY|POULTRY|MUSHROOMS?|FISH|FISHERIES|BUTCHERS?|CONSTRUCTION|BUILDERS|SCHOOLS?|NURSERY|CLEANING|HOSPITALITY|INNS?|PUBS?|CAFE|KEBAB|PIZZA|CURRY|SUPERMARKET|CHURCH|HOMECARE|CHEMIST)\y`;
 
+/**
+ * Links sponsor records to tracked companies: by name or alias, or when the sponsor's name is the
+ * company's name followed only by country or legal words ("STRIPE TECHNOLOGY COMPANY", "GOOGLE
+ * IRELAND"). Discovered companies match by name and alias only.
+ */
+const ENTITY_WORDS = String.raw`(IRELAND|CANADA|UK|US|USA|AMERICA|AMERICAS|NORTH AMERICA|EUROPE|EMEA|INTERNATIONAL|GLOBAL|TECHNOLOGY|TECHNOLOGIES|TECH|SERVICES|SERVICE|SOLUTIONS|OPERATIONS|COMPANY|HOLDINGS|GROUP|LABS|RESEARCH|DEVELOPMENT|SOFTWARE|SYSTEMS|DIGITAL|CLOUD|PAYMENTS|FINANCIAL|ENTERPRISE|INNOVATION|CENTRE|CENTER|DATA|ITALIA|ITALY|BRITAIN|ENGLAND|LONDON|DUBLIN|TORONTO|VANCOUVER|MONTREAL|AND|OF|THE|N A|NA|SE|SRL|SPA|ULC|PLC|LP|LLP|UNLIMITED)`;
+async function linkSponsors(sql: ReturnType<typeof appDb>) {
+  const exact = (await sql`
+    UPDATE mca.sponsor_record s SET company_id = c.id FROM mca.company c
+    WHERE s.company_id IS NULL AND (c.name_norm = s.employer_norm OR s.employer_norm = ANY (c.aliases))
+    RETURNING s.id`) as unknown[];
+  const prefix = (await sql`
+    UPDATE mca.sponsor_record s SET company_id = c.id FROM mca.company c
+    WHERE s.company_id IS NULL AND c.source <> 'discovered' AND c.ats_board IS NOT NULL AND length(c.name_norm) >= 4
+      -- Normalised names are letters, digits and spaces only, so they are safe inside a pattern.
+      AND c.name_norm ~ '^[A-Z0-9 ]+$' AND c.name_norm !~ ${"^" + ENTITY_WORDS + "$"}
+      AND s.employer_norm ~ ('^' || c.name_norm || '( ' || ${ENTITY_WORDS} || ')+$')
+    RETURNING s.id`) as unknown[];
+  console.log(`Linked ${exact.length} sponsor records by name or alias, ${prefix.length} by company name plus country or legal words.`);
+}
+
 async function coverage() {
   const sql = appDb(env.INGEST_DATABASE_URL);
+  await linkSponsors(sql);
   const rows = (await sql`
     WITH emp AS (
       SELECT country, employer_norm, max(employer_name) AS name, sum(filings)::bigint AS filings
@@ -141,11 +163,12 @@ async function coverage() {
          OR country NOT IN ('US', 'CA', 'IE', 'GB')
       GROUP BY 1, 2),
     live AS (
-      SELECT c.name_norm, c.aliases FROM mca.company c
+      SELECT c.id FROM mca.company c
       WHERE c.ats_board IS NOT NULL
         AND EXISTS (SELECT 1 FROM mca.job j WHERE j.company_id = c.id AND j.status = 'open' AND j.ats_vendor <> 'manual')),
+    linked AS (SELECT DISTINCT s.employer_norm FROM mca.sponsor_record s JOIN live l ON l.id = s.company_id),
     m AS (
-      SELECT e.*, EXISTS (SELECT 1 FROM live l WHERE l.name_norm = e.employer_norm OR e.employer_norm = ANY (l.aliases)) AS covered,
+      SELECT e.*, EXISTS (SELECT 1 FROM linked k WHERE k.employer_norm = e.employer_norm) AS covered,
              row_number() OVER (PARTITION BY e.country ORDER BY e.filings DESC) AS rank
       FROM emp e)
     SELECT m.*, d.found_vendor, d.employer_norm IS NOT NULL AS checked FROM m
