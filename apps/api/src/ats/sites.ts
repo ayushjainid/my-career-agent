@@ -160,7 +160,8 @@ export async function fetchEightfold(board: string, opts: FetchOpts & { gapMs?: 
         try {
           body = await getJson(`https://${p.host}/api/pcsx/search?domain=${encodeURIComponent(p.domain)}&query=&location=&start=${start}&sort_by=timestamp`, f);
         } catch (e) {
-          if (page === 0 && !(e instanceof SlowDownError)) { pcsx = false; page--; continue; }
+          // Sites on the older API refuse the newer one (403/404); a 429 is a request to slow down.
+          if (page === 0 && !/HTTP 429/.test((e as Error).message)) { pcsx = false; page--; continue; }
           throw e;
         }
       } else {
