@@ -54,6 +54,8 @@ def ca_urls(n: int = 4) -> list[str]:
     # Prefer CSV for each quarter; the newest n files.
     out: list[str] = []
     for _, fmt, url in res:
+        if url and url.startswith("/"):
+            url = "https://open.canada.ca" + url
         if url and url not in out:
             out.append(url)
         if len(out) >= n:
