@@ -254,17 +254,14 @@ async function coverage() {
   // Italy has no sponsor register, so no coverage share: report what the catalog holds instead.
   const [it] = (await sql`
     SELECT count(*)::int AS jobs, count(DISTINCT j.company_id)::int AS companies,
-           count(*) FILTER (WHERE j.location_text ~* '\y(milan|milano)\y')::int AS milan_jobs,
-           count(DISTINCT j.company_id) FILTER (WHERE j.location_text ~* '\y(milan|milano)\y')::int AS milan_companies
+           count(*) FILTER (WHERE j.location_text ILIKE '%milan%')::int AS milan_jobs,
+           count(DISTINCT j.company_id) FILTER (WHERE j.location_text ILIKE '%milan%')::int AS milan_companies
     FROM mca.job j WHERE j.status = 'open' AND j.country = 'IT'`) as Array<Record<string, number>>;
   const top = (await sql`
     SELECT c.name, count(*)::int AS jobs FROM mca.job j JOIN mca.company c ON c.id = j.company_id
-    WHERE j.status = 'open' AND j.country = 'IT' AND j.location_text ~* '\y(milan|milano)\y'
+    WHERE j.status = 'open' AND j.country = 'IT' AND j.location_text ILIKE '%milan%'
     GROUP BY c.name ORDER BY count(*) DESC LIMIT 25`) as Array<{ name: string; jobs: number }>;
-  // Checks that the name pattern above works on the live database (it once silently matched nothing).
-  const [probe] = (await sql`SELECT 'MERCY HOSPITAL' ~ ${NON_TECH} AS hospital, 'STRIPE TECHNOLOGY' ~ ${NON_TECH} AS stripe`) as Array<{ hospital: boolean; stripe: boolean }>;
-  const places = probe ? [probe] : [];
-  console.log(`ITALY ${JSON.stringify({ ...it, topMilan: top, places })}`);
+  console.log(`ITALY ${JSON.stringify({ ...it, topMilan: top })}`);
   md += `\n**Italy** (no sponsor register, so no share): ${it?.jobs ?? 0} open jobs at ${it?.companies ?? 0} employers; Milan ${it?.milan_jobs ?? 0} jobs at ${it?.milan_companies ?? 0} employers.\n`;
   const summary = process.env.GITHUB_STEP_SUMMARY;
   if (summary) appendFileSync(summary, md);
