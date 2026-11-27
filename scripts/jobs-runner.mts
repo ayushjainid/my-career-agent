@@ -262,7 +262,9 @@ async function coverage() {
     SELECT c.name, count(*)::int AS jobs FROM mca.job j JOIN mca.company c ON c.id = j.company_id
     WHERE j.status = 'open' AND j.country = 'IT' AND j.location_text ~* '\y(milan|milano)\y'
     GROUP BY c.name ORDER BY count(*) DESC LIMIT 25`) as Array<{ name: string; jobs: number }>;
-  console.log(`ITALY ${JSON.stringify({ ...it, topMilan: top })}`);
+  const places = (await sql`SELECT location_text AS place, count(*)::int AS jobs FROM mca.job WHERE status = 'open' AND country = 'IT'
+                             GROUP BY 1 ORDER BY 2 DESC LIMIT 15`) as Array<{ place: string; jobs: number }>;
+  console.log(`ITALY ${JSON.stringify({ ...it, topMilan: top, places })}`);
   md += `\n**Italy** (no sponsor register, so no share): ${it?.jobs ?? 0} open jobs at ${it?.companies ?? 0} employers; Milan ${it?.milan_jobs ?? 0} jobs at ${it?.milan_companies ?? 0} employers.\n`;
   const summary = process.env.GITHUB_STEP_SUMMARY;
   if (summary) appendFileSync(summary, md);
