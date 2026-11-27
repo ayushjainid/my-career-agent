@@ -15,5 +15,7 @@ describe("career-site detector", () => {
     const f = (async (url: string) => (url === "https://www.acme.com/" ? new Response("<title>Acme | Home</title>") : new Response("", { status: 404 }))) as unknown as typeof fetch;
     expect(await guessSite("ACME CORPORATION", f)).toBe("https://www.acme.com/");
     expect(await guessSite("ZETA ANALYTICS LLC", f)).toBeNull();
+    // Two distinctive words: "Acme Care Homes" isn't the Acme whose homepage says only "Acme".
+    expect(await guessSite("ACME CARE HOMES LLC", f)).toBeNull();
   });
 });

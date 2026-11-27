@@ -62,7 +62,10 @@ export async function guessSite(name: string, f: typeof fetch): Promise<string |
     if (!r.ok) { await r.body?.cancel().catch(() => {}); continue; }
     const html = (await r.text().catch(() => "")).slice(0, 200_000);
     const title = (/<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1] ?? "") + " " + (/property=["']og:site_name["'][^>]*content=["']([^"']+)/i.exec(html)?.[1] ?? "");
-    if (new RegExp(`\\b${core[0]!.replace(/[^a-z0-9]/g, "")}`, "i").test(title)) return r.url || url;
+    // The homepage must name the company: its first two distinctive words, not just the first
+    // ("Redwood Extended Care" is not Redwood Software).
+    const need = core.slice(0, 2).map((w) => w.replace(/[^a-z0-9]/g, "")).filter(Boolean);
+    if (need.every((w) => new RegExp(`\\b${w}`, "i").test(title))) return r.url || url;
   }
   return null;
 }
