@@ -1,7 +1,9 @@
 name: Read freehire
-# On demand: read freehire.me's public tech-job API for the last N days (the fetch workflow also
-# reads it after every run).
+# Weekly (and on demand): read freehire.me's public tech-job API for the last 30 days, so jobs
+# still listed stay open (the fetch workflow reads the last 3 days after every run).
 on:
+  schedule:
+    - cron: "11 2 * * 0"
   workflow_dispatch:
     inputs:
       days: { description: "Posted within the last N days", default: "30" }
