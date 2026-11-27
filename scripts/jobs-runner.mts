@@ -6,6 +6,7 @@
 //   node dist/jobs-runner.mjs discover [--limit 150]           add job boards for the biggest sponsors not yet tracked
 //   node dist/jobs-runner.mjs catalog                      report: every company, its board, open jobs by country, and what can't be read
 //   node dist/jobs-runner.mjs coverage [--gaps 60]         coverage KPI per country against the sponsor lists, plus the biggest gaps
+//   node dist/jobs-runner.mjs detect [--limit 200]         find job boards through employers' own careers pages (Wikidata website)
 //   node dist/jobs-runner.mjs gmail                        read new job emails for everyone who linked Gmail
 //
 // Needs INGEST_DATABASE_URL (catalog role) and DATABASE_URL (app role, row-level security), which
@@ -17,6 +18,7 @@ import { neonTenantDb } from "../apps/api/src/lib/tenant.js";
 import { runAllQueues } from "../apps/api/src/queue.js";
 import { syncGmail } from "../apps/api/src/gmail.js";
 import { discoverCompanies } from "../apps/api/src/discover.js";
+import { detectCompanies } from "../apps/api/src/detect.js";
 import { appendFileSync, writeFileSync } from "node:fs";
 import { fetchAny } from "../apps/api/src/ats/adapters.js";
 import type { AtsVendor } from "@my-career-agent/core";
@@ -232,10 +234,20 @@ async function sponsors() {
   }
 }
 
+async function detectSites() {
+  const r = await detectCompanies(env, { limit: Number(flag("limit") ?? 200) });
+  console.log(`Career sites: checked ${r.checked} employers, added ${r.added.length} boards; ${r.workdayOnly} link only to Workday; ${r.noSite} had no website on Wikidata.`);
+  for (const a of r.added) console.log(`ADDED ${JSON.stringify(a)}`);
+  const summary = process.env.GITHUB_STEP_SUMMARY;
+  if (summary && r.added.length)
+    appendFileSync(summary, `### Boards found on career sites\n\n| Company | System | Board |\n| --- | --- | --- |\n${r.added.map((a) => `| ${a.name} | ${a.vendor} | ${a.board} |`).join("\n")}\n`);
+}
+
 if (cmd === "fetch") await fetchJobs();
 else if (cmd === "catalog") await catalog();
 else if (cmd === "coverage") await coverage();
 else if (cmd === "sponsors") await sponsors();
+else if (cmd === "detect") await detectSites();
 else if (cmd === "discover") await discover();
 else if (cmd === "gmail") await gmail();
 else if (cmd === "queues") await queues();
