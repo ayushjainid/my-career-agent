@@ -364,7 +364,8 @@ export async function fetchAvature(board: string, opts: FetchOpts & { gapMs?: nu
   const gap = opts.gapMs ?? paceMs(500);
   const items: Array<{ id: string; title: string; link: string; desc: string | null; date: string | null }> = [];
   let complete = false;
-  for (let page = 0, offset = 0; page < (opts.maxPages ?? 60); page++) {
+  // The feed answers about ten items a page whatever is asked, so a big portal takes many pages.
+  for (let page = 0, offset = 0; page < (opts.maxPages ?? 500); page++) {
     let xml: string;
     try { xml = await getText(`${base}/SearchJobs/feed/?jobRecordsPerPage=100&jobOffset=${offset}`, f, "application/rss+xml,application/xml"); }
     catch (e) { if (e instanceof SlowDownError || items.length) break; throw e; }
@@ -377,7 +378,10 @@ export async function fetchAvature(board: string, opts: FetchOpts & { gapMs?: nu
       if (!items.some((x) => x.id === id)) items.push({ id, title, link, desc: xmlText(it, "description"), date: xmlText(it, "pubDate") });
     }
     await sleep(gap);
+    const before = items.length;
     if (!got.length) { complete = items.length > 0; break; }
+    // A page with nothing new means the offset is being ignored: stop rather than loop.
+    if (items.length === before && page > 0) break;
     offset += got.length;
   }
   const known = opts.known ?? new Set<string>();
