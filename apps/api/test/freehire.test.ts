@@ -1,5 +1,5 @@
-// freehire reader: files jobs under their own employers, skips LinkedIn-sourced jobs and boards the
-// app already reads, and stops on a 429.
+// freehire reader: files jobs under their own employers (LinkedIn-listed ones included), skips boards
+// the app already reads, and stops on a 429.
 import { describe, expect, it } from "vitest";
 import type { PGlite } from "@electric-sql/pglite";
 import { parseFreehire, runFreehire } from "../src/freehire.js";
@@ -32,7 +32,7 @@ describe("freehire", () => {
     expect(parseFreehire(job("b", "X", "workday", { closed_at: "2026-11-20T00:00:00Z" }))).toBeNull();
   });
 
-  it("stores jobs under their employers and skips LinkedIn-sourced and directly-read ones", async () => {
+  it("stores jobs under their employers, keeps LinkedIn-listed ones, and skips directly-read ones", async () => {
     const h = await harness();
     h.env.TEST_INGEST_SQL = ingestSql(h.pg);
     await h.pg.query(`INSERT INTO mca.company (name, name_norm, ats_vendor, ats_board) VALUES ('Stripe', 'STRIPE', 'greenhouse', 'stripe')`);
@@ -45,10 +45,10 @@ describe("freehire", () => {
       return new Response(JSON.stringify({ data: [job("n1", "NVIDIA Corporation", "workday"), job("n2", "NVIDIA", "workday"), job("s1", "Stripe", "greenhouse"), job("l1", "Acme", "linkedin")] }));
     }) as unknown as typeof fetch;
     const r = await runFreehire(h.env, { fetcher: f, gapMs: 0, countries: ["us"], categories: ["software_engineering", "backend", "frontend"] });
-    expect(r).toMatchObject({ stored: 2, skippedLinkedIn: 1, skippedDirect: 1, newCompanies: 1 });
+    expect(r).toMatchObject({ stored: 3, fromLinkedIn: 1, skippedDirect: 1, newCompanies: 2 });
     expect(r.stoppedEarly).toContain("429");
     expect(calls).toBe(2); // stopped at the 429, frontend never asked
-    const rows = (await h.pg.query(`SELECT c.name, c.source, j.country FROM mca.job j JOIN mca.company c ON c.id = j.company_id WHERE j.ats_vendor = 'freehire'`)).rows;
-    expect(rows).toEqual([{ name: "NVIDIA Corporation", source: "freehire", country: "US" }, { name: "NVIDIA Corporation", source: "freehire", country: "US" }]);
+    const rows = (await h.pg.query(`SELECT c.name, c.source, j.country FROM mca.job j JOIN mca.company c ON c.id = j.company_id WHERE j.ats_vendor = 'freehire' ORDER BY j.ats_job_id`)).rows;
+    expect(rows).toEqual([{ name: "Acme", source: "freehire", country: "US" }, { name: "NVIDIA Corporation", source: "freehire", country: "US" }, { name: "NVIDIA Corporation", source: "freehire", country: "US" }]);
   });
 });

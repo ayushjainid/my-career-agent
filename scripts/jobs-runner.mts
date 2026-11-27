@@ -276,7 +276,7 @@ async function detectSites() {
 
 async function freehire() {
   const r = await runFreehire(env, { days: Number(flag("days") ?? 3) });
-  console.log(`freehire: ${r.requests} requests, ${r.seen} jobs seen, ${r.stored} stored, ${r.newCompanies} new employers; skipped ${r.skippedLinkedIn} from LinkedIn and ${r.skippedDirect} already read directly; closed ${r.closed} not seen for 21 days.${r.stoppedEarly ? ` Stopped early: ${r.stoppedEarly}.` : ""}`);
+  console.log(`freehire: ${r.requests} requests, ${r.seen} jobs seen, ${r.stored} stored, ${r.newCompanies} new employers, ${r.fromLinkedIn} of them listed from LinkedIn; skipped ${r.skippedDirect} already read directly; closed ${r.closed} not seen for 21 days.${r.stoppedEarly ? ` Stopped early: ${r.stoppedEarly}.` : ""}`);
 }
 
 if (cmd === "fetch") await fetchJobs();

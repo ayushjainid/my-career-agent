@@ -3,9 +3,9 @@
 // employers this app can't read itself (Workday tenants, bot-protected career sites).
 //
 // Each run reads tech categories in the five countries for recently posted jobs, files each job
-// under its own employer (created when new, source 'freehire'), and skips:
-//   - jobs freehire took from LinkedIn (this app doesn't automate on or collect from LinkedIn);
-//   - jobs from boards this app already reads directly (same employer, same system).
+// under its own employer (created when new, source 'freehire'), and skips jobs from boards this app
+// already reads directly (same employer, same system). Jobs freehire lists from LinkedIn are kept:
+// the app reads them from freehire's API and never contacts linkedin.com itself.
 // A freehire job not seen again for 21 days is closed.
 
 import { normalizeCompanyName, parsePayFromText, type NormalizedJob, type RemoteType } from "@my-career-agent/core";
@@ -22,7 +22,6 @@ export const FREEHIRE_CATEGORIES = ["software_engineering", "backend", "frontend
   "architecture", "product", "developer_relations", "technical_writing", "it_support", "hardware"];
 /** Systems this app reads itself: their jobs come straight from the source instead. */
 const DIRECT = new Set(["greenhouse", "lever", "ashby", "workable", "recruitee", "amazon", "eightfold", "oracle", "teamtailor", "personio", "bamboohr", "rippling", "breezy", "avature"]);
-const SKIP_SOURCES = /linkedin/i;
 
 type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -53,14 +52,14 @@ export function parseFreehire(j: unknown): FreehireJob | null {
   };
 }
 
-export interface FreehireReport { requests: number; seen: number; stored: number; skippedLinkedIn: number; skippedDirect: number; newCompanies: number; closed: number; stoppedEarly: string | null }
+export interface FreehireReport { requests: number; seen: number; stored: number; fromLinkedIn: number; skippedDirect: number; newCompanies: number; closed: number; stoppedEarly: string | null }
 
 export async function runFreehire(env: Env, opts: { days?: number; fetcher?: typeof fetch; gapMs?: number; countries?: string[]; categories?: string[]; maxPages?: number } = {}): Promise<FreehireReport> {
   const sql: Sql = env.TEST_INGEST_SQL ?? appDb(env.INGEST_DATABASE_URL);
   const f = opts.fetcher ?? fetch;
   const gap = opts.gapMs ?? 1000;
   const base = (env as unknown as { FREEHIRE_API_URL?: string }).FREEHIRE_API_URL ?? FREEHIRE_API;
-  const report: FreehireReport = { requests: 0, seen: 0, stored: 0, skippedLinkedIn: 0, skippedDirect: 0, newCompanies: 0, closed: 0, stoppedEarly: null };
+  const report: FreehireReport = { requests: 0, seen: 0, stored: 0, fromLinkedIn: 0, skippedDirect: 0, newCompanies: 0, closed: 0, stoppedEarly: null };
 
   // Employers already read directly, by normalised name and alias.
   const tracked = (await sql`SELECT name_norm, aliases, ats_vendor FROM mca.company WHERE ats_board IS NOT NULL`) as Array<{ name_norm: string; aliases: string[]; ats_vendor: string }>;
@@ -89,7 +88,7 @@ export async function runFreehire(env: Env, opts: { days?: number; fetcher?: typ
         report.seen += list.length;
         const keep: FreehireJob[] = [];
         for (const p of parsed) {
-          if (SKIP_SOURCES.test(p.source)) { report.skippedLinkedIn++; continue; }
+          if (/linkedin/i.test(p.source)) report.fromLinkedIn++;
           const norm = normalizeCompanyName(p.company);
           if (!norm) continue;
           if (direct.has(norm) && DIRECT.has(p.source.toLowerCase())) { report.skippedDirect++; continue; }
