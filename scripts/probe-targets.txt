@@ -1,4 +1,4 @@
-GET https://apply.careers.microsoft.com/api/pcsx/search?domain=microsoft.com&query=&location=&start=0&sort_by=timestamp
-GET https://apply.careers.microsoft.com/api/pcsx/search?domain=microsoft.com&query=&location=&start=990&sort_by=timestamp
-GET https://explore.jobs.netflix.net/api/apply/v2/jobs?domain=netflix.com&start=0&num=10
-GET https://paypal.eightfold.ai/api/pcsx/search?domain=paypal.com&query=&location=&start=0
+GET https://freehire.me/robots.txt
+GET https://freehire.me/terms
+GET https://freehire.me/api/v1/jobs/search?q=software%20engineer&countries=us&limit=3
+GET https://freehire.me/api/v1/jobs/facets?countries=us
