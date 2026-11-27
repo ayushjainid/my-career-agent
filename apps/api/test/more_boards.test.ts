@@ -61,7 +61,9 @@ describe("Workday", () => {
     expect(r.touch).toEqual([...known]);
     expect(r.jobs).toHaveLength(10);
     expect(calls.some((c) => c.endsWith("Role_JR1000"))).toBe(false);
-    expect(r.complete).toBe(false); // more new jobs than the cap: nothing may be closed
+    // The listing was read to the end; jobs beyond the cap just aren't stored yet, so closing
+    // jobs that are no longer listed is still safe.
+    expect(r.complete).toBe(true);
   });
 
   it("an unfinished listing is marked incomplete", async () => {
