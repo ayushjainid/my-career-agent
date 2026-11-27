@@ -1,6 +1,3 @@
-GET https://careers.ey.com/ey/job/Tel-Aviv-Blockchain-Consultant-Architect-6706703/1447979133/
-GET https://careers.capgemini.com/job/Toronto-Kubernetes-%28K8S%29-HPC-Engineer-ON/1447091233/
-GET https://careers.amd.com/jobs/102333?lang=en-us
-GET https://careers.walmart.com/us/en/jobs/R-1075582
-GET https://www.wellsfargojobs.com/en/jobs/r-564508/principal-engineer_java-genai/
-GET https://jobs.citi.com/job/ciudad-de-mexico/senior-product-owner-digital-and-customer-analytics/287/103845007680
+GET https://search-careers.gm.com/en/jobs/jr-202611038/staff-software-engineer-autonomy-evaluation/
+GET https://jobs.fidelity.com/en/jobs/2120655/principal-data-scientist/
+GET https://careers.servicenow.com/jobs/744000158170259/senior-reliability-engineer-veza/
