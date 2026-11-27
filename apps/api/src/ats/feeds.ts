@@ -109,6 +109,26 @@ export function fromJobPosting(jp: Obj, vendor: NormalizedJob["atsVendor"], id: 
 }
 const inTarget = (country: string | null) => country === null || TARGET_ISO2.has(country);
 
+/** Places outside the five countries that often lead a job address ("/job/pune/..."): not read. */
+const ELSEWHERE = /(^|[\s/])(bengaluru|bangalore|hyderabad|pune|chennai|noida|gurgaon|gurugram|mumbai|kolkata|kochi|coimbatore|mysore|nagpur|ahmedabad|jaipur|chandigarh|indore|bhubaneswar|thiruvananthapuram|visakhapatnam|vadodara|lucknow|india|ind|manila|taguig|cebu|philippines|mexico|ciudad|guadalajara|monterrey|krakow|warsaw|wroclaw|poland|bucharest|romania|budapest|prague|brno|sofia|bulgaria|cairo|egypt|casablanca|morocco|sao|paulo|brazil|campinas|buenos|aires|argentina|caba|bogota|colombia|santiago|chile|lima|peru|shanghai|beijing|shenzhen|china|dalian|chengdu|tokyo|japan|singapore|kuala|lumpur|malaysia|penang|bangkok|jakarta|vietnam|hanoi|seoul|korea|taipei|taiwan|sydney|melbourne|australia|auckland|tel|aviv|israel|dubai|riyadh|johannesburg|paris|france|madrid|barcelona|spain|lisbon|portugal|berlin|munich|frankfurt|germany|amsterdam|netherlands|brussels|zurich|stockholm|copenhagen|oslo|helsinki|vienna|istanbul|turkey|hong|kong|nicosia|cyprus|chennai)($|[\s/])/i;
+
+/** schema.org JobPosting written as microdata (itemprop attributes), as SAP SuccessFactors sites do. */
+export function microdataPosting(html: string): Obj | null {
+  if (!/itemtype=["']https?:\/\/schema\.org\/JobPosting["']/i.test(html)) return null;
+  const prop = (name: string): string | null => {
+    const m = new RegExp(`itemprop=["']${name}["'][^>]*?(?:content=["']([^"']*)["'][^>]*)?>([\\s\\S]*?)<\\/`, "i").exec(html);
+    if (!m) return null;
+    return (m[1] ?? m[2] ?? "").trim() || null;
+  };
+  const desc = (() => {
+    const m = /itemprop=["']description["'][^>]*>([\s\S]*?)<\/(?:span|div|section)>\s*(?:<\/(?:span|div|section)>\s*){0,3}/i.exec(html);
+    return m ? m[1]! : null;
+  })();
+  const strip = (v: string | null) => (v ? v.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() : null);
+  return { "@type": "JobPosting", title: strip(prop("title")), description: desc, datePosted: strip(prop("datePosted")),
+    jobLocation: { address: { addressLocality: strip(prop("addressLocality")), addressRegion: strip(prop("addressRegion")), addressCountry: strip(prop("addressCountry")) } } };
+}
+
 // ------------------------------------------------------------------ Sitemap + JobPosting
 
 export function sitemapParts(board: string): { url: string; pattern: RegExp } | null {
@@ -144,23 +164,37 @@ export async function fetchSitemap(board: string, opts: FetchOpts & { gapMs?: nu
       await sleep(gap);
     }
   }
-  const jobs = entries.filter((e) => p.pattern.test(new URL(e.loc, p.url).pathname));
+  // The same job in several languages (/en/jobs/1, /fr/jobs/1): keep one, English first.
+  const LOCALE = /^\/[a-z]{2}(?:[-_][a-z]{2})?(?=\/)/i;
+  const all = entries.filter((e) => p.pattern.test(new URL(e.loc, p.url).pathname))
+    .sort((a, b) => Number(!/^\/en\b/i.test(new URL(a.loc).pathname)) - Number(!/^\/en\b/i.test(new URL(b.loc).pathname)));
+  const seenKey = new Set<string>();
+  const jobs = all.filter((e) => {
+    const key = new URL(e.loc).pathname.replace(LOCALE, "").toLowerCase();
+    if (seenKey.has(key)) return false;
+    seenKey.add(key);
+    return true;
+  });
   const known = opts.known ?? new Set<string>();
   const touch: string[] = [];
   const todo: string[] = [];
   for (const e of jobs) {
     const id = new URL(e.loc).pathname;
+    const words = decodeURIComponent(id).replace(/[-_/+%()]/g, " ");
+    // Addresses without a title in them (".../jobs/R-1075582") can't be judged before reading.
+    const titled = words.split(/\s+/).filter((w) => /^[a-z]{4,}$/i.test(w) && !/^(jobs?|careers?|details?|position|opening|requisition|search|view)$/i.test(w)).length > 0;
     if (known.has(id)) touch.push(id);
-    else if (TECH_TITLE.test(decodeURIComponent(id).replace(/[-_/+]/g, " "))) todo.push(e.loc);
+    else if ((!titled || TECH_TITLE.test(words)) && !ELSEWHERE.test(words.toLowerCase())) todo.push(e.loc);
   }
   const out: NormalizedJob[] = [];
-  for (const url of todo.slice(0, opts.maxDetails ?? 150)) {
+  for (const url of todo.slice(0, opts.maxDetails ?? 300)) {
     let html: string;
     try { html = await getText(url, f); } catch (e) { if (e instanceof SlowDownError) break; continue; }
     await sleep(gap);
-    const jp = jobPostingsIn(html)[0];
+    const jp = jobPostingsIn(html)[0] ?? microdataPosting(html);
     const n = jp && fromJobPosting(jp, "sitemap", new URL(url).pathname, url);
-    if (n && inTarget(n.country)) out.push(n.job);
+    // Every country is kept, so the job is known next run and not read again; queues pick by country.
+    if (n && TECH_TITLE.test(n.job.title)) out.push(n.job);
   }
   return { jobs: out, touch, complete: complete && jobs.length > 0, listed: jobs.length, sample: (todo.length ? todo : jobs.map((e) => e.loc)).slice(0, 3) };
 }

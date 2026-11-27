@@ -28,14 +28,26 @@ describe("sitemap reader", () => {
     return new Response(jp(t, t === "data-engineer" ? "GB" : t === "backend-developer" ? "IN" : "US"));
   }) as unknown as typeof fetch;
 
-  it("reads job pages for tech titles only, keeps the five countries, and touches known ones", async () => {
+  it("reads job pages for tech titles only, keeps every country (so they're known next run), and touches known ones", async () => {
     const calls: string[] = [];
     const r = await fetchSitemap("https://jobs.example.com/sitemap.xml|/job/", { fetcher: site(calls), gapMs: 0, known: new Set(["/job/london/data-engineer/3"]) });
     expect(r.complete).toBe(true);
     expect(r.touch).toEqual(["/job/london/data-engineer/3"]);
-    expect(r.jobs.map((j) => j.title)).toEqual(["senior-software-engineer"]); // India dropped, store role never fetched
+    // The store role and the Pune role (named in the address) are never fetched.
+    expect(r.jobs.map((j) => j.title)).toEqual(["senior-software-engineer"]);
+    expect(calls.some((c) => c.includes("/pune/"))).toBe(false);
     expect(calls.some((c) => c.includes("store-associate"))).toBe(false);
     expect(r.jobs[0]).toMatchObject({ atsVendor: "sitemap", atsJobId: "/job/austin/senior-software-engineer/1", locationText: "Austin, TX, US", pay: { min: 150000, max: 190000 } });
+  });
+});
+
+describe("microdata", () => {
+  it("reads a SuccessFactors-style job page", async () => {
+    const { microdataPosting } = await import("../src/ats/feeds.js");
+    const html = `<div itemscope itemtype="http://schema.org/JobPosting"><h1><span itemprop="title">Cloud Engineer</span></h1>
+      <span itemprop="datePosted" content="2026-11-20"></span><div itemprop="jobLocation"><span itemprop="addressLocality">Dublin</span><span itemprop="addressCountry">IE</span></div>
+      <span itemprop="description"><p>Terraform and AWS.</p></span></div>`;
+    expect(microdataPosting(html)).toMatchObject({ title: "Cloud Engineer", datePosted: "2026-11-20", jobLocation: { address: { addressLocality: "Dublin", addressCountry: "IE" } } });
   });
 });
 

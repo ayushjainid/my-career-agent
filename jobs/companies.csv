@@ -21,9 +21,6 @@ Microsoft,eightfold,apply.careers.microsoft.com|microsoft.com,microsoft.com,,Mic
 JPMorgan Chase,oracle,jpmc.fa.oraclecloud.com|CX_1001,jpmorganchase.com,,"JPMorgan Chase & Co.;J.P. Morgan SE;JP MORGAN CHASE & CO.;JPMorgan Chase Bank, N.A.;J.P. Morgan Securities LLC;J.P. Morgan Services India;J.P. Morgan Securities plc"
 Netflix,eightfold,explore.jobs.netflix.net|netflix.com,netflix.com,,"Netflix, Inc.;Netflix Global, LLC"
 Walmart,workday,walmart.wd5.myworkdayjobs.com/WalmartExternal,walmart.com,,"WAL-MART ASSOCIATES, INC.;Walmart Inc.;Wal-Mart Stores, Inc."
-Capital One,workday,capitalone.wd12.myworkdayjobs.com/Capital_One,capitalone.com,,"Capital One Services, LLC;Capital One, N.A.;Capital One, National Association"
-Bank of America,workday,ghr.wd1.myworkdayjobs.com/Lateral-US,bankofamerica.com,,"Bank of America N.A.;Bank of America, N.A.;BofA Securities, Inc."
-Mastercard,workday,mastercard.wd1.myworkdayjobs.com/CorporateCareers,mastercard.com,,MasterCard International Incorporated;Mastercard Technologies LLC
 Oracle,oracle,eeho.fa.us2.oraclecloud.com|CX_45001,oracle.com,,"Oracle America, Inc.;Oracle Financial Services Software, Inc.;Oracle EMEA Limited;Oracle Canada ULC;Oracle Corporation UK Limited"
 Goldman Sachs,oracle,hdpc.fa.us2.oraclecloud.com|LateralHiring,goldmansachs.com,,Goldman Sachs & Co. LLC;Goldman Sachs Services LLC;Goldman Sachs Bank USA;Goldman Sachs International;Goldman Sachs Bank Europe SE
 Morgan Stanley,eightfold,morganstanley.eightfold.ai|morganstanley.com,morganstanley.com,,"Morgan Stanley Services Group, Inc.;Morgan Stanley & Co., LLC;Morgan Stanley Smith Barney LLC;Morgan Stanley Services Canada Corp;Morgan Stanley Bank, N.A.;Morgan Stanley Investment Management Inc.;Morgan Stanley & Co. International plc;Morgan Stanley UK Limited"
@@ -33,7 +30,6 @@ HP,eightfold,hp.eightfold.ai|hp.com,hp.com,,HP Inc.;HP Inc UK Limited;HP Canada 
 NVIDIA,workday,nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite,,,NVIDIA Corporation;NVIDIA Ireland Limited
 Salesforce,workday,salesforce.wd12.myworkdayjobs.com/External_Career_Site,,,"Salesforce, Inc.;Salesforce.com Canada Corp.;Salesforce.com Inc;Salesforce UK Limited;Salesforce Ireland Limited"
 Intel,workday,intel.wd1.myworkdayjobs.com/External,,,Intel Corporation;Intel Ireland Limited;Intel Corporation (UK) Limited
-Adobe,workday,adobe.wd5.myworkdayjobs.com/external_experienced,,,Adobe Inc.;Adobe Systems Software Ireland Limited
 Workday,workday,workday.wd5.myworkdayjobs.com/Workday,,,"Workday, Inc.;Workday Limited"
 BlackRock,workday,blackrock.wd1.myworkdayjobs.com/BlackRock_Professional,,,"BlackRock Financial Management, Inc.;BlackRock Corporation US, Inc.;BlackRock Investment Management, LLC.;BlackRock Investment Management (UK) Limited"
 Red Hat,workday,redhat.wd5.myworkdayjobs.com/jobs,,,"Red Hat, LLC;Red Hat Limited"
@@ -43,3 +39,27 @@ CVS Health,workday,cvshealth.wd1.myworkdayjobs.com/CVS_Health_Careers,,,"CVS Pha
 Motorola Solutions,workday,motorolasolutions.wd5.myworkdayjobs.com/Careers,,,"Motorola Solutions, Inc.;Motorola Solutions Ireland Ltd."
 Bristol Myers Squibb,workday,bristolmyerssquibb.wd5.myworkdayjobs.com/BMS,,,Bristol-Myers Squibb Company
 Target,workday,target.wd5.myworkdayjobs.com/targetcareers,,,"Target Enterprise, Inc.;Target Corporation"
+Citi,sitemap,https://jobs.citi.com/sitemap.xml|/job/,citi.com,,"Citibank, N.A.;Citigroup Global Markets Inc.;Citicorp Credit Services, Inc. (USA);Citibank Europe Public Limited Company;Citi Canada Technology Services ULC;Citigroup Technology, Inc."
+UnitedHealth Group,sitemap,https://careers.unitedhealthgroup.com/sitemap.xml|/job/,unitedhealthgroup.com,,"UnitedHealth Group Incorporated;Optum Services, Inc.;Optum Services (Ireland) Limited;UnitedHealthcare Services, Inc.;Optum, Inc.;Optum Technology, Inc."
+Charter Communications,sitemap,https://jobs.spectrum.com/sitemap.xml|/job/,spectrum.com,,"Charter Communications, Inc.;Charter Communications Operating, LLC"
+Charles Schwab,sitemap,https://www.schwabjobs.com/sitemap.xml|/job,schwab.com,,"Charles Schwab & Company, Inc.;Charles Schwab & Co., Inc.;The Charles Schwab Corporation"
+Elevance Health,sitemap,https://careers.elevancehealth.com/sitemap.xml|/job,elevancehealth.com,,"The Elevance Health Companies, Inc.;Elevance Health, Inc.;Carelon Global Solutions"
+T-Mobile,sitemap,https://careers.t-mobile.com/sitemap.xml|/job,t-mobile.com,,"T-Mobile USA, Inc."
+U.S. Bank,sitemap,https://careers.usbank.com/sitemap.xml|/job,usbank.com,,U.S. Bank National Association;U.S. Bancorp
+Cisco,sitemap,https://careers.cisco.com/sitemap.xml|/job,cisco.com,,"Cisco Systems, Inc.;Cisco Systems Canada Co.;Cisco International Limited"
+EY,sitemap,https://careers.ey.com/sitemap.xml|/job/,ey.com,,Ernst & Young U.S. LLP;Ernst & Young;Ernst & Young LLP;Ernst & Young Business Services Limited;EY Global Services Limited
+eBay,sitemap,https://jobs.ebayinc.com/sitemap.xml|/job,ebayinc.com,,eBay Inc.;eBay Canada Limited
+Palo Alto Networks,sitemap,https://jobs.paloaltonetworks.com/sitemap.xml|/job,paloaltonetworks.com,,"Palo Alto Networks, Inc."
+Hewlett Packard Enterprise,sitemap,https://careers.hpe.com/sitemap.xml|/job,hpe.com,,Hewlett Packard Enterprise Company;Hewlett Packard Enterprise Ireland Limited
+Fiserv,sitemap,https://www.careers.fiserv.com/sitemap.xml|/job,fiserv.com,,"Fiserv Solutions, LLC;Fiserv, Inc."
+FIS,sitemap,https://careers.fisglobal.com/sitemap.xml|/job,fisglobal.com,,"FIS Management Services, LLC;Fidelity National Information Services, Inc."
+Intuit,sitemap,https://jobs.intuit.com/sitemap.xml|/job,intuit.com,,Intuit Inc.;Intuit Canada ULC
+Expedia Group,sitemap,https://careers.expediagroup.com/sitemap.xml|/job,expediagroup.com,,"Expedia, Inc.;Expedia Group, Inc."
+AMD,sitemap,https://careers.amd.com/sitemap.xml|/jobs/,amd.com,,"Advanced Micro Devices, Inc.;ATI Technologies ULC;Advanced Micro Devices (Ireland) Limited"
+HCLTech,sitemap,https://careers.hcltech.com/sitemap.xml|/job/,hcltech.com,,HCL America Inc;HCL (Ireland) Information Systems Limited;HCL Technologies Limited;HCL Canada Inc.
+Wipro,sitemap,https://careers.wipro.com/sitemap.xml|/job/,wipro.com,,Wipro Limited;Wipro LLC
+Capgemini,sitemap,https://careers.capgemini.com/sitemap.xml|/job/,capgemini.com,,"Capgemini America, Inc.;Capgemini Ireland Limited;Capgemini Solutions Canada Inc.;Capgemini Canada;Capgemini UK plc"
+Capital One,sitemap,https://www.capitalonecareers.com/sitemap.xml|/job/,capitalone.com,,"Capital One Services, LLC;Capital One, N.A.;Capital One, National Association"
+Adobe,sitemap,https://careers.adobe.com/sitemap.xml|/job,adobe.com,,Adobe Inc.;Adobe Systems Software Ireland Limited
+Mastercard,sitemap,https://careers.mastercard.com/sitemap.xml|/job,mastercard.com,,MasterCard International Incorporated;Mastercard Technologies LLC;MasterCard Ireland Limited
+Bank of America,sitemap,https://careers.bankofamerica.com/sitemap.xml|/job,bankofamerica.com,,"Bank of America N.A.;Bank of America, N.A.;BofA Securities, Inc."
