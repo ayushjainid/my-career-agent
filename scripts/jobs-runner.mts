@@ -138,7 +138,7 @@ async function catalog() {
  * name or alias has a working board with open jobs. Reports volume-weighted coverage (share of
  * filings), top-N coverage and plain head-count coverage, plus the biggest uncovered employers.
  */
-const NON_TECH = String.raw`\y(HOSPITALS?|HEALTH|HEALTHCARE|HSE|NHS|NURSING|NURSES?|CARE|CARERS|CLINICS?|MEDICAL|PHARMACY|PHARMACIES|DENTAL|DENTISTS?|SURGERY|DOCTORS?|VETERINARY|MEATS?|FOODS?|FARMS?|FARMING|RESTAURANTS?|HOTELS?|CATERING|TAKEAWAY|BAKERY|DAIRY|POULTRY|MUSHROOMS?|FISH|FISHERIES|BUTCHERS?|CONSTRUCTION|BUILDERS|SCHOOLS?|NURSERY|CLEANING|HOSPITALITY|INNS?|PUBS?|CAFE|KEBAB|PIZZA|CURRY|SUPERMARKET|CHURCH|HOMECARE|CHEMIST)\y`;
+const NON_TECH = "(^|[^A-Z0-9])(HOSPITALS?|HEALTH|HEALTHCARE|HSE|NHS|NURSING|NURSES?|CARE|CARERS|CLINICS?|MEDICAL|PHARMACY|PHARMACIES|DENTAL|DENTISTS?|SURGERY|DOCTORS?|VETERINARY|MEATS?|FOODS?|FARMS?|FARMING|RESTAURANTS?|HOTELS?|CATERING|TAKEAWAY|BAKERY|DAIRY|POULTRY|MUSHROOMS?|FISH|FISHERIES|BUTCHERS?|CONSTRUCTION|BUILDERS|SCHOOLS?|NURSERY|CLEANING|HOSPITALITY|INNS?|PUBS?|CAFE|KEBAB|PIZZA|CURRY|SUPERMARKET|CHURCH|HOMECARE|CHEMIST)([^A-Z0-9]|$)";
 
 /**
  * Links sponsor records to tracked companies: by name or alias, or when the sponsor's name is the
@@ -252,7 +252,7 @@ async function coverage() {
       console.log(`GAP ${country} ${JSON.stringify({ rank: Number(r.rank), name: r.name, norm: r.employer_norm, filings: Number(r.filings), checked: r.checked })}`);
   }
   // Italy has no sponsor register, so no coverage share: report what the catalog holds instead.
-  const MILAN = String.raw`\y(milan|milano)\y`;
+  const MILAN = "(^|[^a-z])(milan|milano)([^a-z]|$)";
   const [it] = (await sql`
     SELECT count(*)::int AS jobs, count(DISTINCT j.company_id)::int AS companies,
            count(*) FILTER (WHERE j.location_text ~* '\y(milan|milano)\y')::int AS milan_jobs,
