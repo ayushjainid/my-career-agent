@@ -190,13 +190,13 @@ async function coverage() {
          OR (country IN ('IE', 'GB') AND employer_norm !~ ${NON_TECH})
          OR country NOT IN ('US', 'CA', 'IE', 'GB')
       GROUP BY 1, 2),
+    -- A company counts for a country only when it has open jobs there.
     live AS (
-      SELECT c.id FROM mca.company c
-      WHERE c.ats_board IS NOT NULL
-        AND EXISTS (SELECT 1 FROM mca.job j WHERE j.company_id = c.id AND j.status = 'open' AND j.ats_vendor <> 'manual')),
-    linked AS (SELECT DISTINCT s.employer_norm FROM mca.sponsor_record s JOIN live l ON l.id = s.company_id),
+      SELECT DISTINCT c.id, j.country FROM mca.company c JOIN mca.job j ON j.company_id = c.id
+      WHERE c.ats_board IS NOT NULL AND j.status = 'open' AND j.ats_vendor <> 'manual'),
+    linked AS (SELECT DISTINCT s.country, s.employer_norm FROM mca.sponsor_record s JOIN live l ON l.id = s.company_id AND l.country = s.country),
     m AS (
-      SELECT e.*, EXISTS (SELECT 1 FROM linked k WHERE k.employer_norm = e.employer_norm) AS covered,
+      SELECT e.*, EXISTS (SELECT 1 FROM linked k WHERE k.employer_norm = e.employer_norm AND k.country = e.country) AS covered,
              row_number() OVER (PARTITION BY e.country ORDER BY e.filings DESC) AS rank
       FROM emp e)
     SELECT m.*, d.found_vendor, d.employer_norm IS NOT NULL AS checked FROM m
@@ -218,7 +218,7 @@ async function coverage() {
         SELECT count(*)::int AS n, count(*) FILTER (WHERE EXISTS (
           SELECT 1 FROM mca.sponsor_record s JOIN mca.company c ON c.id = s.company_id
           WHERE s.employer_norm = e.employer_norm AND c.ats_board IS NOT NULL
-            AND EXISTS (SELECT 1 FROM mca.job j WHERE j.company_id = c.id AND j.status = 'open')))::int AS covered FROM e`) as Array<{ n: number; covered: number }>;
+            AND EXISTS (SELECT 1 FROM mca.job j WHERE j.company_id = c.id AND j.status = 'open' AND j.country = 'GB')))::int AS covered FROM e`) as Array<{ n: number; covered: number }>;
       return r ? { employers: r.n, covered: r.covered, pct: pct(r.covered, r.n) } : undefined;
     };
     const metrics = {

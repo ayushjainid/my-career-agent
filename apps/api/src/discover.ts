@@ -122,7 +122,10 @@ export async function probe(vendor: Vendor, slug: string, f: typeof fetch = fetc
 }
 
 // SmartRecruiters left out: its API host's robots.txt closes it to us.
-const ORDER: Vendor[] = ["greenhouse", "lever", "ashby", "workable", "recruitee", "teamtailor", "personio", "bamboohr", "rippling", "breezy"];
+// Teamtailor, Personio, BambooHR, Rippling and Breezy aren't guessed: a board name like "dellusa"
+// or "humana" can belong to an unrelated firm (a Swedish Humana on Teamtailor), and these systems
+// don't report enough to tell. Their boards come from career-page links (detect.ts) and lists.
+const ORDER: Vendor[] = ["greenhouse", "lever", "ashby", "workable", "recruitee"];
 const NAMED = new Set<Vendor>(["greenhouse", "workable", "smartrecruiters", "teamtailor", "breezy"]);
 
 export interface FindResult { hit: { vendor: Vendor; board: string; name: string; jobs: number } | null; tried: number; skipped: boolean }
