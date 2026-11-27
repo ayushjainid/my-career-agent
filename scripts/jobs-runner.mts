@@ -5,6 +5,7 @@
 //   node dist/jobs-runner.mjs queues [--user <id>]         build today's queue for one user, or everyone
 //   node dist/jobs-runner.mjs discover [--limit 150]           add job boards for the biggest sponsors not yet tracked
 //   node dist/jobs-runner.mjs catalog                      report: every company, its board, open jobs by country, and what can't be read
+//   node dist/jobs-runner.mjs coverage [--gaps 60]         coverage KPI per country against the sponsor lists, plus the biggest gaps
 //   node dist/jobs-runner.mjs gmail                        read new job emails for everyone who linked Gmail
 //
 // Needs INGEST_DATABASE_URL (catalog role) and DATABASE_URL (app role, row-level security), which
@@ -119,12 +120,62 @@ async function catalog() {
   console.log(`Catalog: ${cos.length} companies with a job board, ${cos.filter((c) => Number(c.open) > 0).length} with open jobs.`);
 }
 
+/**
+ * Coverage KPI, per country. The denominator is the government sponsor list (US: LCA filings for
+ * computer occupations, SOC 15-*); an employer counts as covered when a tracked company with that
+ * name or alias has a working board with open jobs. Reports volume-weighted coverage (share of
+ * filings), top-N coverage and plain head-count coverage, plus the biggest uncovered employers.
+ */
+async function coverage() {
+  const sql = appDb(env.INGEST_DATABASE_URL);
+  const rows = (await sql`
+    WITH emp AS (
+      SELECT country, employer_norm, max(employer_name) AS name, sum(filings)::bigint AS filings
+      FROM mca.sponsor_record
+      WHERE (country = 'US' AND source = 'dol_lca' AND occupation_code LIKE '15-%') OR country <> 'US'
+      GROUP BY 1, 2),
+    live AS (
+      SELECT c.name_norm, c.aliases FROM mca.company c
+      WHERE c.ats_board IS NOT NULL
+        AND EXISTS (SELECT 1 FROM mca.job j WHERE j.company_id = c.id AND j.status = 'open' AND j.ats_vendor <> 'manual')),
+    m AS (
+      SELECT e.*, EXISTS (SELECT 1 FROM live l WHERE l.name_norm = e.employer_norm OR e.employer_norm = ANY (l.aliases)) AS covered,
+             row_number() OVER (PARTITION BY e.country ORDER BY e.filings DESC) AS rank
+      FROM emp e)
+    SELECT m.*, d.found_vendor, d.employer_norm IS NOT NULL AS checked FROM m
+    LEFT JOIN mca.board_discovery d ON d.employer_norm = m.employer_norm`) as Array<{
+      country: string; employer_norm: string; name: string; filings: string; covered: boolean; rank: string; checked: boolean }>;
+  const by = new Map<string, typeof rows>();
+  for (const r of rows) (by.get(r.country) ?? by.set(r.country, []).get(r.country)!).push(r);
+  const pct = (a: number, b: number) => (b ? Math.round((1000 * a) / b) / 10 : 0);
+  let md = "### Coverage KPI\n\n| Country | Filings covered | Top 100 | Top 500 | Top 1000 | All employers |\n| --- | --- | --- | --- | --- | --- |\n";
+  for (const [country, list] of [...by].sort()) {
+    const tot = list.reduce((n, r) => n + Number(r.filings), 0);
+    const cov = list.filter((r) => r.covered);
+    const top = (n: number) => { const t = list.filter((r) => Number(r.rank) <= n); return pct(t.filter((r) => r.covered).length, t.length); };
+    const metrics = {
+      employers: list.length, covered: cov.length, filings: tot,
+      filingsCovered: cov.reduce((n, r) => n + Number(r.filings), 0),
+      volumePct: pct(cov.reduce((n, r) => n + Number(r.filings), 0), tot),
+      top100Pct: top(100), top500Pct: top(500), top1000Pct: top(1000), headcountPct: pct(cov.length, list.length),
+    };
+    await sql`INSERT INTO mca.coverage_snapshot (country, metrics) VALUES (${country}, ${JSON.stringify(metrics)}::jsonb)`;
+    console.log(`COVERAGE ${country} ${JSON.stringify(metrics)}`);
+    md += `| ${country} | ${metrics.volumePct}% | ${metrics.top100Pct}% | ${metrics.top500Pct}% | ${metrics.top1000Pct}% | ${metrics.headcountPct}% (${cov.length}/${list.length}) |\n`;
+    for (const r of list.filter((x) => !x.covered).sort((a, b) => Number(a.rank) - Number(b.rank)).slice(0, Number(flag("gaps") ?? 60)))
+      console.log(`GAP ${country} ${JSON.stringify({ rank: Number(r.rank), name: r.name, norm: r.employer_norm, filings: Number(r.filings), checked: r.checked })}`);
+  }
+  const summary = process.env.GITHUB_STEP_SUMMARY;
+  if (summary) appendFileSync(summary, md);
+}
+
 if (cmd === "fetch") await fetchJobs();
 else if (cmd === "catalog") await catalog();
+else if (cmd === "coverage") await coverage();
 else if (cmd === "discover") await discover();
 else if (cmd === "gmail") await gmail();
 else if (cmd === "queues") await queues();
 else {
-  console.error("usage: jobs-runner.mjs fetch [--stale-minutes N] | queues [--user ID] | gmail | discover [--limit N] | catalog");
+  console.error("usage: jobs-runner.mjs fetch [--stale-minutes N] | queues [--user ID] | gmail | discover [--limit N] | catalog | coverage [--gaps N]");
   process.exitCode = 2;
 }
