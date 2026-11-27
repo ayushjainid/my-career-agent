@@ -182,7 +182,19 @@ async function coverage() {
     const tot = list.reduce((n, r) => n + Number(r.filings), 0);
     const cov = list.filter((r) => r.covered);
     const top = (n: number) => { const t = list.filter((r) => Number(r.rank) <= n); return pct(t.filter((r) => r.covered).length, t.length); };
+    // The UK register carries no size, so also measure the routes that point to tech and large employers.
+    const route = async (pattern: string) => {
+      if (country !== "GB") return undefined;
+      const [r] = (await sql`
+        WITH e AS (SELECT DISTINCT employer_norm FROM mca.sponsor_record WHERE country = 'GB' AND extra->>'route' ~* ${pattern})
+        SELECT count(*)::int AS n, count(*) FILTER (WHERE EXISTS (
+          SELECT 1 FROM mca.sponsor_record s JOIN mca.company c ON c.id = s.company_id
+          WHERE s.employer_norm = e.employer_norm AND c.ats_board IS NOT NULL
+            AND EXISTS (SELECT 1 FROM mca.job j WHERE j.company_id = c.id AND j.status = 'open')))::int AS covered FROM e`) as Array<{ n: number; covered: number }>;
+      return r ? { employers: r.n, covered: r.covered, pct: pct(r.covered, r.n) } : undefined;
+    };
     const metrics = {
+      scaleUp: await route("scale-?up"), globalMobility: await route("global business mobility"),
       employers: list.length, covered: cov.length, filings: tot,
       filingsCovered: cov.reduce((n, r) => n + Number(r.filings), 0),
       volumePct: pct(cov.reduce((n, r) => n + Number(r.filings), 0), tot),
@@ -192,6 +204,7 @@ async function coverage() {
     (metrics as Record<string, unknown>).change = prev?.metrics?.volumePct !== undefined ? Math.round((metrics.volumePct - prev.metrics.volumePct) * 10) / 10 : null;
     await sql`INSERT INTO mca.coverage_snapshot (country, metrics) VALUES (${country}, ${JSON.stringify(metrics)}::jsonb)`;
     console.log(`COVERAGE ${country} ${JSON.stringify(metrics)}`);
+    if (metrics.scaleUp) md += `| GB Scale-up route | – | – | – | – | – | ${metrics.scaleUp.pct}% (${metrics.scaleUp.covered}/${metrics.scaleUp.employers}) |\n| GB Global Business Mobility | – | – | – | – | – | ${metrics.globalMobility?.pct}% (${metrics.globalMobility?.covered}/${metrics.globalMobility?.employers}) |\n`;
     md += `| ${country} | ${metrics.volumePct}% | ${(metrics as Record<string, unknown>).change ?? "–"} | ${metrics.top100Pct}% | ${metrics.top500Pct}% | ${metrics.top1000Pct}% | ${metrics.headcountPct}% (${cov.length}/${list.length}) |\n`;
     for (const r of list.filter((x) => !x.covered).sort((a, b) => Number(a.rank) - Number(b.rank)).slice(0, Number(flag("gaps") ?? 60)))
       console.log(`GAP ${country} ${JSON.stringify({ rank: Number(r.rank), name: r.name, norm: r.employer_norm, filings: Number(r.filings), checked: r.checked })}`);
