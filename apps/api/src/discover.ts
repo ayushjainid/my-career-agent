@@ -161,7 +161,7 @@ const pretty = (s: string) => normalizeCompanyName(s).toLowerCase().replace(/\b[
 
 export interface DiscoverReport { checked: number; found: number; added: Array<{ name: string; vendor: string }>; stoppedEarly: boolean; resting: string[]; unfinished: number }
 
-export async function discoverCompanies(env: Env, opts: { limit?: number; fetcher?: typeof fetch; gapMs?: number } = {}): Promise<DiscoverReport> {
+export async function discoverCompanies(env: Env, opts: { limit?: number; fetcher?: typeof fetch; gapMs?: number; country?: string } = {}): Promise<DiscoverReport> {
   const sql: Sql = env.TEST_INGEST_SQL ?? appDb(env.INGEST_DATABASE_URL);
   const f = opts.fetcher ?? politeFetch(fetch);
   const candidates = (await sql`
@@ -169,7 +169,10 @@ export async function discoverCompanies(env: Env, opts: { limit?: number; fetche
     FROM mca.sponsor_record s
     WHERE s.company_id IS NULL
       -- Tech hiring first: US computer occupations, Canadian IT occupations, and Irish/UK employers.
-      AND ((s.country = 'US' AND s.occupation_code LIKE '15-%') OR (s.country = 'CA' AND s.occupation_code LIKE '212%') OR s.country IN ('IE', 'GB'))
+      AND ((s.country = 'US' AND s.occupation_code LIKE '15-%') OR (s.country = 'CA' AND s.occupation_code LIKE '212%') OR s.country = 'IE'
+           -- UK: the register has no size, so the routes that point to tech and large employers.
+           OR (s.country = 'GB' AND s.extra->>'route' ~* 'scale-?up|global business mobility'))
+      AND (${opts.country ?? null}::text IS NULL OR s.country = ${opts.country ?? null})
       AND NOT EXISTS (SELECT 1 FROM mca.company c WHERE c.name_norm = s.employer_norm OR s.employer_norm = ANY (c.aliases))
       AND NOT EXISTS (SELECT 1 FROM mca.board_discovery d WHERE d.employer_norm = s.employer_norm AND d.checked_at > now() - interval '90 days')
     GROUP BY s.employer_norm

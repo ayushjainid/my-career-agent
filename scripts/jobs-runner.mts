@@ -77,7 +77,7 @@ async function gmail() {
 }
 
 async function discover() {
-  const r = await discoverCompanies(env, { limit: Number(flag("limit") ?? 150) });
+  const r = await discoverCompanies(env, { limit: Number(flag("limit") ?? 150), country: flag("country") });
   console.log(`Discovery: checked ${r.checked} sponsoring employers, added ${r.found} job boards, ${r.unfinished} to finish next run.` +
     (r.resting.length ? ` Paused after asking us to slow down: ${r.resting.join(", ")}.` : "") + (r.stoppedEarly ? " Stopped early." : ""));
   const summary = process.env.GITHUB_STEP_SUMMARY;
@@ -252,7 +252,7 @@ async function sponsors() {
 }
 
 async function detectSites() {
-  const r = await detectCompanies(env, { limit: Number(flag("limit") ?? 200) });
+  const r = await detectCompanies(env, { limit: Number(flag("limit") ?? 200), country: flag("country") });
   console.log(`Career sites: checked ${r.checked} employers, added ${r.added.length} boards; ${r.workdayOnly} link only to Workday; ${r.noSite} had no website found.`);
   for (const a of r.added) console.log(`ADDED ${JSON.stringify(a)}`);
   const summary = process.env.GITHUB_STEP_SUMMARY;

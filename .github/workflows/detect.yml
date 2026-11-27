@@ -7,6 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       limit: { description: "How many employers to check", default: "200" }
+      country: { description: "Only this country (US, IE, CA, GB); empty for all", default: "" }
 concurrency:
   group: detect
   cancel-in-progress: false
@@ -24,6 +25,7 @@ jobs:
         run: node scripts/db-urls.mjs
         env:
           DATABASE_OWNER_URL: ${{ secrets.DATABASE_OWNER_URL }}
-      - run: node dist/jobs-runner.mjs detect --limit "${LIMIT:-200}"
+      - run: node dist/jobs-runner.mjs detect --limit "${LIMIT:-200}" ${COUNTRY:+--country "$COUNTRY"}
         env:
           LIMIT: ${{ inputs.limit }}
+          COUNTRY: ${{ inputs.country }}

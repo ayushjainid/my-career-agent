@@ -108,14 +108,16 @@ export async function detect(name: string, f: typeof fetch, gapMs = 400): Promis
 
 export interface DetectReport { checked: number; added: Array<{ name: string; vendor: string; board: string }>; workdayOnly: number; noSite: number }
 
-export async function detectCompanies(env: Env, opts: { limit?: number; fetcher?: typeof fetch; gapMs?: number } = {}): Promise<DetectReport> {
+export async function detectCompanies(env: Env, opts: { limit?: number; fetcher?: typeof fetch; gapMs?: number; country?: string } = {}): Promise<DetectReport> {
   const sql: Sql = env.TEST_INGEST_SQL ?? appDb(env.INGEST_DATABASE_URL);
   const f = opts.fetcher ?? politeFetch(fetch);
   // Biggest tech sponsors not yet covered by any tracked company and not checked in 90 days.
   const rows = (await sql`
     SELECT s.employer_norm, max(s.employer_name) AS employer_name, sum(s.filings)::int AS filings
     FROM mca.sponsor_record s
-    WHERE ((s.country = 'US' AND s.occupation_code LIKE '15-%') OR (s.country = 'CA' AND s.occupation_code LIKE '212%') OR s.country = 'IE')
+    WHERE ((s.country = 'US' AND s.occupation_code LIKE '15-%') OR (s.country = 'CA' AND s.occupation_code LIKE '212%') OR s.country = 'IE'
+           OR (s.country = 'GB' AND s.extra->>'route' ~* 'scale-?up|global business mobility'))
+      AND (${opts.country ?? null}::text IS NULL OR s.country = ${opts.country ?? null})
       AND NOT EXISTS (SELECT 1 FROM mca.company c WHERE c.id = s.company_id AND c.ats_board IS NOT NULL)
       AND NOT EXISTS (SELECT 1 FROM mca.career_site_check k WHERE k.employer_norm = s.employer_norm AND k.checked_at > now() - interval '90 days')
     GROUP BY s.employer_norm ORDER BY sum(s.filings) DESC LIMIT ${opts.limit ?? 200}`) as Array<{ employer_norm: string; employer_name: string; filings: number }>;

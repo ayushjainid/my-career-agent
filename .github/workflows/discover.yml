@@ -10,6 +10,10 @@ on:
         description: "How many employers to check"
         required: false
         default: "1000"
+      country:
+        description: "Only this country (US, IE, CA, GB); empty for all, biggest first"
+        required: false
+        default: ""
 concurrency:
   group: discover
   cancel-in-progress: false
@@ -28,8 +32,9 @@ jobs:
         env:
           DATABASE_OWNER_URL: ${{ secrets.DATABASE_OWNER_URL }}
       - name: Discover job boards
-        run: node dist/jobs-runner.mjs discover --limit "${LIMIT:-1000}"
+        run: node dist/jobs-runner.mjs discover --limit "${LIMIT:-1000}" ${COUNTRY:+--country "$COUNTRY"}
         env:
           LIMIT: ${{ inputs.limit }}
+          COUNTRY: ${{ inputs.country }}
       - name: Fetch the new boards' jobs
         run: node dist/jobs-runner.mjs fetch --stale-minutes 60
