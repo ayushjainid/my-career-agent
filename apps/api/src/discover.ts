@@ -14,7 +14,7 @@ import type { Env } from "./env.js";
 import { appDb, type Sql } from "./lib/db.js";
 
 const UA = { "user-agent": "MyCareerAgentBot/0.1 (+https://github.com/ayushjainid/my-career-agent)", accept: "application/json" };
-type Vendor = "greenhouse" | "lever" | "ashby" | "workable" | "smartrecruiters" | "recruitee";
+type Vendor = "greenhouse" | "lever" | "ashby" | "workable" | "smartrecruiters" | "recruitee" | "teamtailor" | "personio" | "bamboohr" | "rippling" | "breezy";
 interface Probe { jobs: number; name: string | null }
 
 /** Words that make a name too generic to try alone as a board name. */
@@ -87,12 +87,41 @@ export async function probe(vendor: Vendor, slug: string, f: typeof fetch = fetc
       const b = await getJson(`https://${slug}.recruitee.com/api/offers/`, f);
       return isObj(b) && Array.isArray(b.offers) ? { jobs: b.offers.length, name: null } : null;
     }
+    case "teamtailor": {
+      if (!/^[a-z0-9-]+$/.test(slug)) return null;
+      const b = await getJson(`https://${slug}.teamtailor.com/jobs.json`, f);
+      return isObj(b) && Array.isArray(b.items) ? { jobs: b.items.length, name: typeof b.title === "string" ? b.title : null } : null;
+    }
+    case "personio": {
+      if (!/^[a-z0-9-]+$/.test(slug)) return null;
+      const r = await f(`https://${slug}.jobs.personio.de/xml?language=en`, { headers: UA });
+      if (r.status === 429 || r.status === 503) throw new SlowDown(`${slug}.jobs.personio.de`);
+      if (!r.ok) return null;
+      const xml = await r.text();
+      return /<workzag-jobs/i.test(xml) ? { jobs: (xml.match(/<position>/g) ?? []).length, name: null } : null;
+    }
+    case "bamboohr": {
+      if (!/^[a-z0-9-]+$/.test(slug)) return null;
+      const b = await getJson(`https://${slug}.bamboohr.com/careers/list`, f);
+      return isObj(b) && Array.isArray(b.result) ? { jobs: b.result.length, name: null } : null;
+    }
+    case "rippling": {
+      const b = await getJson(`https://api.rippling.com/platform/api/ats/v1/board/${s}/jobs`, f);
+      return Array.isArray(b) ? { jobs: b.length, name: null } : null;
+    }
+    case "breezy": {
+      if (!/^[a-z0-9-]+$/.test(slug)) return null;
+      const b = await getJson(`https://${slug}.breezy.hr/json`, f);
+      const first = Array.isArray(b) && isObj(b[0]) ? b[0] : null;
+      const co = first && isObj(first.company) ? first.company : null;
+      return Array.isArray(b) ? { jobs: b.length, name: co && typeof co.name === "string" ? co.name : null } : null;
+    }
   }
 }
 
 // SmartRecruiters left out: its API host's robots.txt closes it to us.
-const ORDER: Vendor[] = ["greenhouse", "lever", "ashby", "workable", "recruitee"];
-const NAMED = new Set<Vendor>(["greenhouse", "workable", "smartrecruiters"]);
+const ORDER: Vendor[] = ["greenhouse", "lever", "ashby", "workable", "recruitee", "teamtailor", "personio", "bamboohr", "rippling", "breezy"];
+const NAMED = new Set<Vendor>(["greenhouse", "workable", "smartrecruiters", "teamtailor", "breezy"]);
 
 export interface FindResult { hit: { vendor: Vendor; board: string; name: string; jobs: number } | null; tried: number; skipped: boolean }
 const pause = (ms: number) => new Promise((ok) => setTimeout(ok, ms));

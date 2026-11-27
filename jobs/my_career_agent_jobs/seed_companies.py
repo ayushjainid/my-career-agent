@@ -12,6 +12,10 @@ Find the board token from a company's careers page:
   amazon           amazon (amazon.jobs)
   eightfold        <host>|<domain>, e.g. apply.careers.microsoft.com|microsoft.com
   oracle           <host>|<siteNumber>, e.g. jpmc.fa.oraclecloud.com|CX_1001
+  teamtailor       <company>.teamtailor.com       personio   <company>.jobs.personio.de
+  bamboohr         <company>.bamboohr.com          rippling   ats.rippling.com/<board>
+  breezy           <company>.breezy.hr
+  sitemap          <sitemap url>|<job url pattern>, e.g. https://jobs.citi.com/sitemap.xml|/job/
 
 Several CSVs may be given; later files win for the same board (list the curated file last).
 
@@ -29,7 +33,7 @@ from pathlib import Path
 
 from .names import normalize_company_name
 
-VENDORS = {"greenhouse", "lever", "ashby", "smartrecruiters", "workable", "workday", "recruitee", "amazon", "eightfold", "oracle", "other"}
+VENDORS = {"greenhouse", "lever", "ashby", "smartrecruiters", "workable", "workday", "recruitee", "amazon", "eightfold", "oracle", "teamtailor", "personio", "bamboohr", "rippling", "breezy", "sitemap", "other"}
 
 
 def read_companies(path: Path) -> list[dict[str, object]]:

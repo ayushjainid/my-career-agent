@@ -8,10 +8,15 @@
 export const BOT_NAME = "MyCareerAgentBot";
 
 interface Rule { allow: boolean; pattern: string }
+interface Parsed { rules: Rule[]; delayMs: number }
 
 export function parseRobots(text: string, agent = BOT_NAME): Rule[] {
-  const groups: Array<{ agents: string[]; rules: Rule[] }> = [];
-  let cur: { agents: string[]; rules: Rule[] } | null = null;
+  return parseRobotsFull(text, agent).rules;
+}
+
+export function parseRobotsFull(text: string, agent = BOT_NAME): Parsed {
+  const groups: Array<{ agents: string[]; rules: Rule[]; delay?: number }> = [];
+  let cur: { agents: string[]; rules: Rule[]; delay?: number } | null = null;
   let lastWasAgent = false;
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.replace(/#.*/, "").trim();
@@ -26,6 +31,10 @@ export function parseRobots(text: string, agent = BOT_NAME): Rule[] {
       lastWasAgent = false;
       if (key === "disallow" && value === "") continue; // "Disallow:" with nothing allows all
       cur.rules.push({ allow: key === "allow", pattern: value });
+    } else if (key === "crawl-delay" && cur) {
+      lastWasAgent = false;
+      const n = Number(value);
+      if (Number.isFinite(n) && n > 0) cur.delay = Math.min(n, 30);
     } else {
       lastWasAgent = false;
     }
@@ -33,7 +42,8 @@ export function parseRobots(text: string, agent = BOT_NAME): Rule[] {
   const me = agent.toLowerCase();
   const named = groups.filter((g) => g.agents.some((a) => a !== "*" && me.includes(a)));
   const chosen = named.length ? named : groups.filter((g) => g.agents.includes("*"));
-  return chosen.flatMap((g) => g.rules);
+  const delay = Math.max(0, ...chosen.map((g) => g.delay ?? 0));
+  return { rules: chosen.flatMap((g) => g.rules), delayMs: delay * 1000 };
 }
 
 function matches(pattern: string, path: string): number {
@@ -53,7 +63,8 @@ export function allowedBy(rules: Rule[], pathAndQuery: string): boolean {
   return best ? best.allow : true;
 }
 
-const cache = new Map<string, Promise<Rule[] | "deny-all">>();
+const cache = new Map<string, Promise<Parsed | "deny-all">>();
+const lastHit = new Map<string, number>();
 
 /** Whether our bot may fetch this URL, by the host's robots.txt (cached per host for the run). */
 export async function robotsAllows(url: string, f: typeof fetch = fetch): Promise<boolean> {
@@ -63,14 +74,31 @@ export async function robotsAllows(url: string, f: typeof fetch = fetch): Promis
     cache.set(key, (async () => {
       try {
         const r = await f(`${u.origin}/robots.txt`, { headers: { "user-agent": `${BOT_NAME}/0.1 (+https://github.com/ayushjainid/my-career-agent)` }, redirect: "follow" });
-        if (r.status >= 400 && r.status < 500) return [];
+        if (r.status >= 400 && r.status < 500) return { rules: [], delayMs: 0 };
         if (!r.ok) return "deny-all";
-        return parseRobots(await r.text());
+        return parseRobotsFull(await r.text());
       } catch { return "deny-all"; }
     })());
   }
-  const rules = await cache.get(key)!;
-  return rules === "deny-all" ? false : allowedBy(rules, u.pathname + u.search);
+  const p = await cache.get(key)!;
+  return p === "deny-all" ? false : allowedBy(p.rules, u.pathname + u.search);
+}
+
+/** Waits out the host's Crawl-delay since our last request to it. */
+const queue = new Map<string, Promise<void>>();
+async function honourDelay(url: string): Promise<void> {
+  const origin = new URL(url).origin;
+  const p = await cache.get(origin);
+  const delay = p && p !== "deny-all" ? p.delayMs : 0;
+  if (!delay) return;
+  // One request at a time per host that asks for a delay, each `delay` after the last.
+  const turn = (queue.get(origin) ?? Promise.resolve()).then(async () => {
+    const wait = (lastHit.get(origin) ?? 0) + delay - Date.now();
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    lastHit.set(origin, Date.now());
+  });
+  queue.set(origin, turn);
+  await turn;
 }
 
 export class RobotsDisallowedError extends Error {}
@@ -81,6 +109,7 @@ export function politeFetch(base: typeof fetch = fetch): typeof fetch {
     if (typeof process !== "undefined" && process.env?.MCA_SKIP_ROBOTS === "1") return base(input, init);
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     if (!(await robotsAllows(url, base))) throw new RobotsDisallowedError(`${new URL(url).host}: robots.txt asks bots not to fetch ${new URL(url).pathname}`);
+    await honourDelay(url);
     return base(input, init);
   }) as typeof fetch;
 }

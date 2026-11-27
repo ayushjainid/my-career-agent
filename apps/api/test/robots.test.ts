@@ -23,3 +23,11 @@ describe("robots.txt", () => {
     expect(await robotsAllows("https://b.example/x", f500)).toBe(false);
   });
 });
+
+describe("crawl-delay", () => {
+  it("is read from the group that applies", async () => {
+    const { parseRobotsFull } = await import("../src/lib/robots.js");
+    expect(parseRobotsFull("User-agent: *\nCrawl-delay: 5\nDisallow: /x").delayMs).toBe(5000);
+    expect(parseRobotsFull("User-agent: Googlebot\nCrawl-delay: 9\nUser-agent: *\nAllow: /").delayMs).toBe(0);
+  });
+});
