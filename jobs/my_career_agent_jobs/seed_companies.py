@@ -9,6 +9,11 @@ Find the board token from a company's careers page:
   smartrecruiters  jobs.smartrecruiters.com/<CompanyId>
   workable         apply.workable.com/<account>
   recruitee        <company>.recruitee.com
+  amazon           amazon (amazon.jobs)
+  eightfold        <host>|<domain>, e.g. apply.careers.microsoft.com|microsoft.com
+  oracle           <host>|<siteNumber>, e.g. jpmc.fa.oraclecloud.com|CX_1001
+
+Several CSVs may be given; later files win for the same board (list the curated file last).
 
 Usage:
   python -m my_career_agent_jobs.seed_companies companies.csv --database-url "$INGEST_DATABASE_URL"
@@ -24,7 +29,7 @@ from pathlib import Path
 
 from .names import normalize_company_name
 
-VENDORS = {"greenhouse", "lever", "ashby", "smartrecruiters", "workable", "workday", "recruitee", "other"}
+VENDORS = {"greenhouse", "lever", "ashby", "smartrecruiters", "workable", "workday", "recruitee", "amazon", "eightfold", "oracle", "other"}
 
 
 def read_companies(path: Path) -> list[dict[str, object]]:
@@ -67,10 +72,14 @@ def upsert(companies: list[dict[str, object]], database_url: str) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("csv", type=Path)
+    p.add_argument("csv", type=Path, nargs="+")
     p.add_argument("--database-url", default=os.environ.get("INGEST_DATABASE_URL"))
     args = p.parse_args(argv)
-    companies = read_companies(args.csv)
+    merged: dict[tuple[object, object], dict[str, object]] = {}
+    for path in args.csv:
+        for c in read_companies(path):
+            merged[(c["ats_vendor"], str(c["ats_board"] or c["name"]).lower())] = c
+    companies = list(merged.values())
     if not args.database_url:
         for c in companies:
             print(c)

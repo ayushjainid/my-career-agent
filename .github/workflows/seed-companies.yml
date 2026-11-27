@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: [jobs/companies.csv]
+    paths: [jobs/companies.csv, jobs/companies_open_lists.csv]
 
 jobs:
   seed:
@@ -30,6 +30,7 @@ jobs:
       - run: pip install -e ".[db]"
       - run: |
           if [ ! -f companies.csv ]; then echo "Add jobs/companies.csv (see companies.example.csv)"; exit 1; fi
-          python -m my_career_agent_jobs.seed_companies companies.csv
+          # Open lists first, so the curated file's names and aliases win for the same board.
+          python -m my_career_agent_jobs.seed_companies companies_open_lists.csv companies.csv
         env:
           DATABASE_OWNER_URL: ${{ secrets.DATABASE_OWNER_URL }}

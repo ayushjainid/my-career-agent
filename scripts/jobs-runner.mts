@@ -30,7 +30,7 @@ const env = { ...process.env } as unknown as Env;
 
 async function fetchJobs() {
   const stale = Number(flag("stale-minutes") ?? 0);
-  const r = await runIngest(env, { limit: 1000, staleAfterMinutes: stale });
+  const r = await runIngest(env, { limit: 5000, staleAfterMinutes: stale });
   console.log(`Fetched ${r.boards} of ${r.total} job boards: ${r.added} new, ${r.updated} updated, ${r.closed} closed, ${r.stale} stale.`);
   for (const e of r.errors) console.log(`::warning::${e.board}: ${e.error}`);
 }
