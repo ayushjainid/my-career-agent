@@ -111,7 +111,8 @@ export function politeFetch(base: typeof fetch = fetch): typeof fetch {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     if (!(await robotsAllows(url, base))) throw new RobotsDisallowedError(`${new URL(url).host}: robots.txt asks bots not to fetch ${new URL(url).pathname}`);
     await honourDelay(url);
-    return base(input, init);
+    // A request that hangs (a dropped connection) gives up after a minute instead of stalling the run.
+    return base(input, { ...init, signal: init?.signal ?? AbortSignal.timeout(60_000) });
   }) as typeof fetch;
 }
 
