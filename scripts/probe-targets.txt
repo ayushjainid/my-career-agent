@@ -1,0 +1,32 @@
+# Amazon
+GET https://www.amazon.jobs/en/search.json?result_limit=5&offset=0&category[]=software-development&country=USA
+# Google
+GET https://www.google.com/about/careers/applications/jobs/results/?q=software%20engineer&location=United%20States
+GET https://www.google.com/about/careers/applications/sitemap.xml
+# Microsoft (Eightfold-based site)
+GET https://apply.careers.microsoft.com/api/pcsx/search?domain=microsoft.com&query=software%20engineer&location=United%20States&start=0
+GET https://gcsservices.careers.microsoft.com/search/api/v1/search?q=software&lc=United%20States&pg=1&pgSz=5
+# Apple
+GET https://jobs.apple.com/en-us/search?search=software&location=united-states-USA
+GET https://jobs.apple.com/sitemap/sitemap-jobs-en-us.xml
+# Meta
+GET https://www.metacareers.com/jobs?q=software%20engineer
+# Workday sitemap + listing (NVIDIA, Salesforce, Walmart)
+GET https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/siteMap.xml
+POST https://nvidia.wd5.myworkdayjobs.com/wday/cxs/nvidia/NVIDIAExternalCareerSite/jobs {"limit":5,"offset":0,"searchText":"","appliedFacets":{}}
+GET https://salesforce.wd12.myworkdayjobs.com/External_Career_Site/siteMap.xml
+GET https://walmart.wd5.myworkdayjobs.com/WalmartExternal/siteMap.xml
+# Oracle Recruiting Cloud (JPMorgan)
+GET https://jpmc.fa.oraclecloud.com/hcmRestApi/resources/latest/recruitingCEJobRequisitions?onlyData=true&expand=requisitionList&finder=findReqs;siteNumber=CX_1001,limit=5,offset=0
+# Eightfold (Netflix) as a pattern check
+GET https://explore.jobs.netflix.net/api/apply/v2/jobs?domain=netflix.com&start=0&num=5
+# IBM
+GET https://www-api.ibm.com/search/api/v2?appId=careers&scopes=careers2&query=software&size=5
+# Consultancies
+GET https://careers.cognizant.com/us-en/jobs/
+GET https://ibegin.tcs.com/iBegin/jobs/search
+GET https://apply.deloitte.com/careers/SearchJobs
+GET https://www.accenture.com/us-en/careers/jobsearch
+GET https://career.infosys.com/joblist
+# SmartRecruiters (our existing adapter host)
+GET https://api.smartrecruiters.com/v1/companies/ServiceNow/postings?limit=1

@@ -1,0 +1,15 @@
+name: Probe career sites
+# Checks career-site endpoints listed in scripts/probe-targets.txt: robots.txt first, then one request
+# each, a second apart. No secrets, nothing stored.
+on: workflow_dispatch
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci --no-audit --no-fund
+      - run: npx esbuild scripts/probe-urls.mts --bundle --platform=node --format=esm --target=node22 --outfile=dist/probe-urls.mjs --log-level=warning
+      - run: node dist/probe-urls.mjs scripts/probe-targets.txt
