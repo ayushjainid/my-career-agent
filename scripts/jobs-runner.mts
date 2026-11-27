@@ -146,18 +146,35 @@ const NON_TECH = String.raw`\y(HOSPITALS?|HEALTH|HEALTHCARE|HSE|NHS|NURSING|NURS
  */
 const ENTITY_WORDS = String.raw`(IRELAND|CANADA|UK|US|USA|AMERICA|AMERICAS|NORTH AMERICA|EUROPE|EMEA|INTERNATIONAL|GLOBAL|TECHNOLOGY|TECHNOLOGIES|TECH|SERVICES|SERVICE|SOLUTIONS|OPERATIONS|COMPANY|HOLDINGS|GROUP|LABS|RESEARCH|DEVELOPMENT|SOFTWARE|SYSTEMS|DIGITAL|CLOUD|PAYMENTS|FINANCIAL|ENTERPRISE|INNOVATION|CENTRE|CENTER|DATA|ITALIA|ITALY|BRITAIN|ENGLAND|LONDON|DUBLIN|TORONTO|VANCOUVER|MONTREAL|AND|OF|THE|N A|NA|SE|SRL|SPA|ULC|PLC|LP|LLP|UNLIMITED)`;
 async function linkSponsors(sql: ReturnType<typeof appDb>) {
+  // Exact: name or alias (a hash join on the expanded names).
   const exact = (await sql`
-    UPDATE mca.sponsor_record s SET company_id = c.id FROM mca.company c
-    WHERE s.company_id IS NULL AND (c.name_norm = s.employer_norm OR s.employer_norm = ANY (c.aliases))
+    WITH names AS (SELECT id, name_norm AS n FROM mca.company UNION SELECT id, unnest(aliases) FROM mca.company)
+    UPDATE mca.sponsor_record s SET company_id = names.id FROM names
+    WHERE s.company_id IS NULL AND s.employer_norm = names.n
     RETURNING s.id`) as unknown[];
-  const prefix = (await sql`
-    UPDATE mca.sponsor_record s SET company_id = c.id FROM mca.company c
-    WHERE s.company_id IS NULL AND c.source <> 'discovered' AND c.ats_board IS NOT NULL AND length(c.name_norm) >= 4
-      -- Normalised names are letters, digits and spaces only, so they are safe inside a pattern.
-      AND c.name_norm ~ '^[A-Z0-9 ]+$' AND c.name_norm !~ ${"^" + ENTITY_WORDS + "$"}
-      AND s.employer_norm ~ ('^' || c.name_norm || '( ' || ${ENTITY_WORDS} || ')+$')
-    RETURNING s.id`) as unknown[];
-  console.log(`Linked ${exact.length} sponsor records by name or alias, ${prefix.length} by company name plus country or legal words.`);
+  // Prefix: the company's name followed only by country or legal words. Matched here, not in SQL,
+  // because a pattern join across every sponsor row is far too slow.
+  const words = new Set(ENTITY_WORDS.replace(/[()]/g, "").split("|"));
+  const companies = (await sql`SELECT id, name_norm FROM mca.company WHERE source <> 'discovered' AND ats_board IS NOT NULL AND length(name_norm) >= 4`) as Array<{ id: string; name_norm: string }>;
+  const byName = new Map(companies.filter((c) => /^[A-Z0-9 ]+$/.test(c.name_norm) && !words.has(c.name_norm)).map((c) => [c.name_norm, c.id]));
+  const open = (await sql`SELECT DISTINCT employer_norm FROM mca.sponsor_record WHERE company_id IS NULL`) as Array<{ employer_norm: string }>;
+  const plan = new Map<string, string[]>();
+  for (const { employer_norm } of open) {
+    const w = employer_norm.split(" ");
+    for (let k = w.length - 1; k >= 1; k--) {
+      const id = byName.get(w.slice(0, k).join(" "));
+      if (!id) continue;
+      // "N A" and "NORTH AMERICA" are two words each; check the tail word by word.
+      if (w.slice(k).every((x) => words.has(x) || x === "N" || x === "A" || x === "NORTH")) (plan.get(id) ?? plan.set(id, []).get(id)!).push(employer_norm);
+      break;
+    }
+  }
+  let prefix = 0;
+  for (const [id, norms] of plan) {
+    const r = (await sql`UPDATE mca.sponsor_record SET company_id = ${id}::uuid WHERE company_id IS NULL AND employer_norm = ANY(${norms}::text[]) RETURNING id`) as unknown[];
+    prefix += r.length;
+  }
+  console.log(`Linked ${exact.length} sponsor records by name or alias, ${prefix} by company name plus country or legal words.`);
 }
 
 async function coverage() {
