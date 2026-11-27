@@ -1,6 +1,4 @@
-GET https://apply.deloitte.com/careers/SearchJobs/feed/
-GET https://apply.deloitte.com/en_US/careers/SearchJobs/feed/?jobRecordsPerPage=5
-GET https://ibmglobal.avature.net/en_US/careers/SearchJobs/feed/
-GET https://bloomberg.avature.net/careers/SearchJobs/feed/
-GET https://www.accenture.com/robots.txt
-GET https://www.google.com/about/careers/applications/robots.txt
+GET https://apply.careers.microsoft.com/api/pcsx/search?domain=microsoft.com&query=&location=&start=0&sort_by=timestamp
+GET https://apply.careers.microsoft.com/api/pcsx/search?domain=microsoft.com&query=&location=&start=990&sort_by=timestamp
+GET https://explore.jobs.netflix.net/api/apply/v2/jobs?domain=netflix.com&start=0&num=10
+GET https://paypal.eightfold.ai/api/pcsx/search?domain=paypal.com&query=&location=&start=0

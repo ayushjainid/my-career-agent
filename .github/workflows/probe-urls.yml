@@ -13,4 +13,4 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npx esbuild scripts/probe-urls.mts --bundle --platform=node --format=esm --target=node22 --outfile=dist/probe-urls.mjs --log-level=warning
       - run: node dist/probe-urls.mjs scripts/probe-targets.txt
-        env: { PROBE_CHARS: "1200" }
+        env: { PROBE_CHARS: "60000" }
