@@ -1,22 +1,22 @@
 name: Discover companies
-# Weekly: find public job boards for the biggest sponsoring employers not yet tracked, add the ones
+# Daily: find public job boards for the biggest sponsoring employers not yet tracked, add the ones
 # that check out, then fetch their jobs. See apps/api/src/discover.ts.
 on:
   schedule:
-    - cron: "41 4 * * 0"   # Sundays
+    - cron: "41 4 * * *"   # every day; misses are remembered for 90 days, so each run checks new employers
   workflow_dispatch:
     inputs:
       limit:
         description: "How many employers to check"
         required: false
-        default: "150"
+        default: "1000"
 concurrency:
   group: jobs
   cancel-in-progress: false
 jobs:
   discover:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 300
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -28,7 +28,7 @@ jobs:
         env:
           DATABASE_OWNER_URL: ${{ secrets.DATABASE_OWNER_URL }}
       - name: Discover job boards
-        run: node dist/jobs-runner.mjs discover --limit "${LIMIT:-150}"
+        run: node dist/jobs-runner.mjs discover --limit "${LIMIT:-1000}"
         env:
           LIMIT: ${{ inputs.limit }}
       - name: Fetch the new boards' jobs
