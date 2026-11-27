@@ -1,0 +1,27 @@
+name: Read freehire
+# On demand: read freehire.me's public tech-job API for the last N days (the fetch workflow also
+# reads it after every run).
+on:
+  workflow_dispatch:
+    inputs:
+      days: { description: "Posted within the last N days", default: "30" }
+concurrency:
+  group: freehire
+  cancel-in-progress: false
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci --no-audit --no-fund
+      - run: npx esbuild scripts/jobs-runner.mts --bundle --platform=node --format=esm --target=node22 --outfile=dist/jobs-runner.mjs --log-level=warning
+      - name: Derive the connection strings
+        run: node scripts/db-urls.mjs
+        env:
+          DATABASE_OWNER_URL: ${{ secrets.DATABASE_OWNER_URL }}
+      - run: node dist/jobs-runner.mjs freehire --days "${DAYS:-30}"
+        env:
+          DAYS: ${{ inputs.days }}
