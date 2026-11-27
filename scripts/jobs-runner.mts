@@ -19,6 +19,7 @@ import { runAllQueues } from "../apps/api/src/queue.js";
 import { syncGmail } from "../apps/api/src/gmail.js";
 import { discoverCompanies } from "../apps/api/src/discover.js";
 import { detectCompanies } from "../apps/api/src/detect.js";
+import { runFreehire } from "../apps/api/src/freehire.js";
 import { appendFileSync, writeFileSync } from "node:fs";
 import { fetchAny } from "../apps/api/src/ats/adapters.js";
 import type { AtsVendor } from "@my-career-agent/core";
@@ -150,14 +151,14 @@ async function linkSponsors(sql: ReturnType<typeof appDb>) {
   // freed first, so they can link to the company that is read now.
   const freed = (await sql`
     UPDATE mca.sponsor_record SET company_id = NULL
-    WHERE company_id IN (SELECT id FROM mca.company WHERE ats_board IS NULL OR ats_vendor = 'smartrecruiters')
+    WHERE company_id IN (SELECT id FROM mca.company WHERE (ats_board IS NULL AND source <> 'freehire') OR ats_vendor = 'smartrecruiters')
     RETURNING id`) as unknown[];
   if (freed.length) console.log(`Freed ${freed.length} sponsor records from companies that are no longer read.`);
   // Exact: name or alias (a hash join on the expanded names); curated companies before discovered ones.
   await sql`
-    WITH names AS (SELECT id, name_norm AS n, source FROM mca.company WHERE ats_board IS NOT NULL
+    WITH names AS (SELECT id, name_norm AS n, source FROM mca.company WHERE ats_board IS NOT NULL OR source = 'freehire'
                    UNION SELECT id, unnest(aliases), source FROM mca.company WHERE ats_board IS NOT NULL),
-         best AS (SELECT DISTINCT ON (n) n, id FROM names ORDER BY n, (source = 'discovered'))
+         best AS (SELECT DISTINCT ON (n) n, id FROM names ORDER BY n, (source = 'freehire'), (source = 'discovered'))
     UPDATE mca.sponsor_record s SET company_id = best.id FROM best
     WHERE s.company_id IS NULL AND s.employer_norm = best.n`;
   const exact = (await sql`
@@ -206,7 +207,7 @@ async function coverage() {
     -- A company counts for a country only when it has open jobs there.
     live AS (
       SELECT DISTINCT c.id, j.country FROM mca.company c JOIN mca.job j ON j.company_id = c.id
-      WHERE c.ats_board IS NOT NULL AND j.status = 'open' AND j.ats_vendor <> 'manual'),
+      WHERE (c.ats_board IS NOT NULL OR c.source = 'freehire') AND j.status = 'open' AND j.ats_vendor <> 'manual'),
     linked AS (SELECT DISTINCT s.country, s.employer_norm FROM mca.sponsor_record s JOIN live l ON l.id = s.company_id AND l.country = s.country),
     m AS (
       SELECT e.*, EXISTS (SELECT 1 FROM linked k WHERE k.employer_norm = e.employer_norm AND k.country = e.country) AS covered,
@@ -230,7 +231,7 @@ async function coverage() {
         WITH e AS (SELECT DISTINCT employer_norm FROM mca.sponsor_record WHERE country = 'GB' AND extra->>'route' ~* ${pattern})
         SELECT count(*)::int AS n, count(*) FILTER (WHERE EXISTS (
           SELECT 1 FROM mca.sponsor_record s JOIN mca.company c ON c.id = s.company_id
-          WHERE s.employer_norm = e.employer_norm AND c.ats_board IS NOT NULL
+          WHERE s.employer_norm = e.employer_norm AND (c.ats_board IS NOT NULL OR c.source = 'freehire')
             AND EXISTS (SELECT 1 FROM mca.job j WHERE j.company_id = c.id AND j.status = 'open' AND j.country = 'GB')))::int AS covered FROM e`) as Array<{ n: number; covered: number }>;
       return r ? { employers: r.n, covered: r.covered, pct: pct(r.covered, r.n) } : undefined;
     };
@@ -273,11 +274,17 @@ async function detectSites() {
     appendFileSync(summary, `### Boards found on career sites\n\n| Company | System | Board |\n| --- | --- | --- |\n${r.added.map((a) => `| ${a.name} | ${a.vendor} | ${a.board} |`).join("\n")}\n`);
 }
 
+async function freehire() {
+  const r = await runFreehire(env, { days: Number(flag("days") ?? 3) });
+  console.log(`freehire: ${r.requests} requests, ${r.seen} jobs seen, ${r.stored} stored, ${r.newCompanies} new employers; skipped ${r.skippedLinkedIn} from LinkedIn and ${r.skippedDirect} already read directly; closed ${r.closed} not seen for 21 days.${r.stoppedEarly ? ` Stopped early: ${r.stoppedEarly}.` : ""}`);
+}
+
 if (cmd === "fetch") await fetchJobs();
 else if (cmd === "catalog") await catalog();
 else if (cmd === "coverage") await coverage();
 else if (cmd === "sponsors") await sponsors();
 else if (cmd === "detect") await detectSites();
+else if (cmd === "freehire") await freehire();
 else if (cmd === "discover") await discover();
 else if (cmd === "gmail") await gmail();
 else if (cmd === "queues") await queues();

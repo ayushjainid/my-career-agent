@@ -74,7 +74,7 @@ function upsertJobs(sql: Sql, companyId: string, rows: ReturnType<typeof toRecor
 async function ingestCompany(sql: Sql, c: CompanyRow, report: IngestReport): Promise<void> {
   const stored = (await sql`
     SELECT ats_job_id AS "atsJobId", status, first_seen_at AS "firstSeenAt"
-    FROM mca.job WHERE company_id = ${c.id}`) as StoredJobKey[];
+    FROM mca.job WHERE company_id = ${c.id} AND ats_vendor = ${c.ats_vendor}`) as StoredJobKey[]; // a board closes only its own jobs (not freehire's)
   // Paged systems skip detail requests for jobs already stored and still open.
   const known = NEEDS_KNOWN.has(c.ats_vendor) ? new Set(stored.filter((s) => s.status !== "closed").map((s) => s.atsJobId)) : undefined;
   const got = await fetchAny({ vendor: c.ats_vendor, board: c.ats_board, region: c.ats_region }, { known });
