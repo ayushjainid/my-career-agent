@@ -134,6 +134,8 @@ export async function discoverCompanies(env: Env, opts: { limit?: number; fetche
     SELECT s.employer_norm, max(s.employer_name) AS employer_name, sum(s.filings)::int AS filings
     FROM mca.sponsor_record s
     WHERE s.company_id IS NULL
+      -- Tech hiring first: US computer occupations, Canadian IT occupations, and Irish/UK employers.
+      AND ((s.country = 'US' AND s.occupation_code LIKE '15-%') OR (s.country = 'CA' AND s.occupation_code LIKE '212%') OR s.country IN ('IE', 'GB'))
       AND NOT EXISTS (SELECT 1 FROM mca.company c WHERE c.name_norm = s.employer_norm OR s.employer_norm = ANY (c.aliases))
       AND NOT EXISTS (SELECT 1 FROM mca.board_discovery d WHERE d.employer_norm = s.employer_norm AND d.checked_at > now() - interval '90 days')
     GROUP BY s.employer_norm

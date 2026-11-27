@@ -75,7 +75,7 @@ describe("discovery run", () => {
     const h = await harness();
     h.env.TEST_INGEST_SQL = ingestSql(h.pg);
     for (const [name, norm, filings] of [["ROBINHOOD MARKETS, INC.", "ROBINHOOD MARKETS", 300], ["GENERAL MOTORS LLC", "GENERAL MOTORS", 900], ["ACME ANALYTICS LLC", "ACME ANALYTICS", 40]] as const)
-      await h.pg.query(`INSERT INTO mca.sponsor_record (country, source, employer_name, employer_norm, filings, certified, period_end) VALUES ('US', 'dol_lca', $1, $2, $3, $3, '2026-09-30')`, [name, norm, filings]);
+      await h.pg.query(`INSERT INTO mca.sponsor_record (country, source, occupation_code, employer_name, employer_norm, filings, certified, period_end) VALUES ('US', 'dol_lca', '15-1252', $1, $2, $3, $3, '2026-09-30')`, [name, norm, filings]);
     const calls: string[] = [];
     const r = await discoverCompanies(h.env, { fetcher: systems(calls), gapMs: 0 });
     expect(r).toMatchObject({ checked: 3, found: 2, stoppedEarly: false });
@@ -96,7 +96,7 @@ describe("discovery run", () => {
   it("rests only the system that says slow down, and keeps asking the others", async () => {
     const h = await harness();
     h.env.TEST_INGEST_SQL = ingestSql(h.pg);
-    await h.pg.query(`INSERT INTO mca.sponsor_record (country, source, employer_name, employer_norm, filings, certified, period_end) VALUES ('US', 'dol_lca', 'ACME ANALYTICS LLC', 'ACME ANALYTICS', 50, 50, '2026-09-30')`);
+    await h.pg.query(`INSERT INTO mca.sponsor_record (country, source, occupation_code, employer_name, employer_norm, filings, certified, period_end) VALUES ('US', 'dol_lca', '15-1252', 'ACME ANALYTICS LLC', 'ACME ANALYTICS', 50, 50, '2026-09-30')`);
     const calls: string[] = [];
     const base = systems(calls);
     const fetcher = (async (url: string) => (new URL(url).host === "boards-api.greenhouse.io" ? new Response("", { status: 429 }) : base(url))) as unknown as typeof fetch;
@@ -107,7 +107,7 @@ describe("discovery run", () => {
   it("stops politely when a system says it's rate-limiting", async () => {
     const h = await harness();
     h.env.TEST_INGEST_SQL = ingestSql(h.pg);
-    await h.pg.query(`INSERT INTO mca.sponsor_record (country, source, employer_name, employer_norm, filings, certified, period_end) VALUES ('US', 'dol_lca', 'ZETA LABS INC', 'ZETA LABS', 50, 50, '2026-09-30')`);
+    await h.pg.query(`INSERT INTO mca.sponsor_record (country, source, occupation_code, employer_name, employer_norm, filings, certified, period_end) VALUES ('US', 'dol_lca', '15-1252', 'ZETA LABS INC', 'ZETA LABS', 50, 50, '2026-09-30')`);
     const r = await discoverCompanies(h.env, { fetcher: (async () => new Response("", { status: 429 })) as unknown as typeof fetch, gapMs: 0 });
     expect(r).toMatchObject({ unfinished: 1, found: 0 });
     const { rows } = await h.pg.query<{ n: number }>("SELECT count(*)::int AS n FROM mca.board_discovery");
