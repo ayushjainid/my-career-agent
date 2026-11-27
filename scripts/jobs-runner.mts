@@ -177,7 +177,7 @@ async function coverage() {
   const by = new Map<string, typeof rows>();
   for (const r of rows) (by.get(r.country) ?? by.set(r.country, []).get(r.country)!).push(r);
   const pct = (a: number, b: number) => (b ? Math.round((1000 * a) / b) / 10 : 0);
-  let md = "### Coverage KPI\n\n| Country | Filings covered | Top 100 | Top 500 | Top 1000 | All employers |\n| --- | --- | --- | --- | --- | --- |\n";
+  let md = "### Coverage KPI\n\n| Country | Filings covered | Change | Top 100 | Top 500 | Top 1000 | All employers |\n| --- | --- | --- | --- | --- | --- | --- |\n";
   for (const [country, list] of [...by].sort()) {
     const tot = list.reduce((n, r) => n + Number(r.filings), 0);
     const cov = list.filter((r) => r.covered);
@@ -188,9 +188,11 @@ async function coverage() {
       volumePct: pct(cov.reduce((n, r) => n + Number(r.filings), 0), tot),
       top100Pct: top(100), top500Pct: top(500), top1000Pct: top(1000), headcountPct: pct(cov.length, list.length),
     };
+    const [prev] = (await sql`SELECT metrics FROM mca.coverage_snapshot WHERE country = ${country} ORDER BY measured_at DESC LIMIT 1`) as Array<{ metrics: { volumePct?: number } }>;
+    (metrics as Record<string, unknown>).change = prev?.metrics?.volumePct !== undefined ? Math.round((metrics.volumePct - prev.metrics.volumePct) * 10) / 10 : null;
     await sql`INSERT INTO mca.coverage_snapshot (country, metrics) VALUES (${country}, ${JSON.stringify(metrics)}::jsonb)`;
     console.log(`COVERAGE ${country} ${JSON.stringify(metrics)}`);
-    md += `| ${country} | ${metrics.volumePct}% | ${metrics.top100Pct}% | ${metrics.top500Pct}% | ${metrics.top1000Pct}% | ${metrics.headcountPct}% (${cov.length}/${list.length}) |\n`;
+    md += `| ${country} | ${metrics.volumePct}% | ${(metrics as Record<string, unknown>).change ?? "–"} | ${metrics.top100Pct}% | ${metrics.top500Pct}% | ${metrics.top1000Pct}% | ${metrics.headcountPct}% (${cov.length}/${list.length}) |\n`;
     for (const r of list.filter((x) => !x.covered).sort((a, b) => Number(a.rank) - Number(b.rank)).slice(0, Number(flag("gaps") ?? 60)))
       console.log(`GAP ${country} ${JSON.stringify({ rank: Number(r.rank), name: r.name, norm: r.employer_norm, filings: Number(r.filings), checked: r.checked })}`);
   }
