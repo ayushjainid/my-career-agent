@@ -251,6 +251,18 @@ async function coverage() {
     for (const r of list.filter((x) => !x.covered).sort((a, b) => Number(a.rank) - Number(b.rank)).slice(0, Number(flag("gaps") ?? 60)))
       console.log(`GAP ${country} ${JSON.stringify({ rank: Number(r.rank), name: r.name, norm: r.employer_norm, filings: Number(r.filings), checked: r.checked })}`);
   }
+  // Italy has no sponsor register, so no coverage share: report what the catalog holds instead.
+  const [it] = (await sql`
+    SELECT count(*)::int AS jobs, count(DISTINCT j.company_id)::int AS companies,
+           count(*) FILTER (WHERE j.location_text ~* '\y(milan|milano)\y')::int AS milan_jobs,
+           count(DISTINCT j.company_id) FILTER (WHERE j.location_text ~* '\y(milan|milano)\y')::int AS milan_companies
+    FROM mca.job j WHERE j.status = 'open' AND j.country = 'IT'`) as Array<Record<string, number>>;
+  const top = (await sql`
+    SELECT c.name, count(*)::int AS jobs FROM mca.job j JOIN mca.company c ON c.id = j.company_id
+    WHERE j.status = 'open' AND j.country = 'IT' AND j.location_text ~* '\y(milan|milano)\y'
+    GROUP BY c.name ORDER BY count(*) DESC LIMIT 25`) as Array<{ name: string; jobs: number }>;
+  console.log(`ITALY ${JSON.stringify({ ...it, topMilan: top })}`);
+  md += `\n**Italy** (no sponsor register, so no share): ${it?.jobs ?? 0} open jobs at ${it?.companies ?? 0} employers; Milan ${it?.milan_jobs ?? 0} jobs at ${it?.milan_companies ?? 0} employers.\n`;
   const summary = process.env.GITHUB_STEP_SUMMARY;
   if (summary) appendFileSync(summary, md);
 }
