@@ -147,7 +147,8 @@ function locs(xml: string): Array<{ loc: string; lastmod: string | null }> {
   return out;
 }
 
-export async function fetchSitemap(board: string, opts: FetchOpts & { gapMs?: number } = {}): Promise<BoardResult> {
+export async function fetchSitemap(boardIn: string, opts: FetchOpts & { gapMs?: number } = {}): Promise<BoardResult> {
+  const { board, place } = splitDefault(boardIn);
   const p = sitemapParts(board);
   if (!p) throw new Error(`sitemap board "${board}" should look like https://host/sitemap.xml|pattern`);
   const f = opts.fetcher ?? fetch;
@@ -195,7 +196,7 @@ export async function fetchSitemap(board: string, opts: FetchOpts & { gapMs?: nu
     const jp = jobPostingsIn(html)[0] ?? microdataPosting(html);
     const n = jp && fromJobPosting(jp, "sitemap", new URL(url).pathname, url);
     // Every country is kept, so the job is known next run and not read again; queues pick by country.
-    if (n && TECH_TITLE.test(n.job.title)) out.push(n.job);
+    if (n && TECH_TITLE.test(n.job.title)) out.push(withPlace(n.job, place));
   }
   return { jobs: out, touch, complete: complete && jobs.length > 0, listed: jobs.length, sample: (todo.length ? todo : jobs.map((e) => e.loc)).slice(0, 3) };
 }
@@ -357,8 +358,17 @@ export async function fetchBreezy(board: string, opts: FetchOpts & { gapMs?: num
 // ------------------------------------------------------------------ Avature (RSS feed)
 
 /** Avature careers portals (Deloitte, Bloomberg, ...): an RSS feed of the search, paged by jobOffset. */
-export async function fetchAvature(board: string, opts: FetchOpts & { gapMs?: number } = {}): Promise<BoardResult> {
+const PLACE: Record<string, string> = { US: "United States", GB: "United Kingdom", IE: "Ireland", CA: "Canada", IT: "Italy" };
+/** "board#US": the country a single-country portal's jobs are in when a job doesn't say. */
+function splitDefault(board: string): { board: string; place: string | null } {
+  const m = /^(.*)#([A-Z]{2})$/.exec(board);
+  return m ? { board: m[1]!, place: PLACE[m[2]!] ?? null } : { board, place: null };
+}
+const withPlace = (j: NormalizedJob, place: string | null): NormalizedJob => (place && !j.locationText ? { ...j, locationText: place } : j);
+
+export async function fetchAvature(boardIn: string, opts: FetchOpts & { gapMs?: number } = {}): Promise<BoardResult> {
   const f = opts.fetcher ?? fetch;
+  const { board, place } = splitDefault(boardIn);
   const base = board.replace(/\/+$/, "");
   if (!/^https:\/\/[^/]+\/.+/.test(base)) throw new Error(`avature board "${board}" should look like https://host/careers`);
   const gap = opts.gapMs ?? paceMs(500);
@@ -393,7 +403,7 @@ export async function fetchAvature(board: string, opts: FetchOpts & { gapMs?: nu
     try { const html = await getText(it.link, f); jp = jobPostingsIn(html)[0] ?? microdataPosting(html); } catch (e) { if (e instanceof SlowDownError) break; }
     await sleep(gap);
     const n = fromJobPosting(jp ?? { "@type": "JobPosting", title: it.title, description: it.desc, datePosted: it.date }, "avature", it.id, it.link);
-    if (n) jobs.push(n.job);
+    if (n) jobs.push(withPlace(n.job, place));
   }
   return { jobs, touch, complete, listed: items.length, sample: todo.slice(0, 3).map((t) => t.link) };
 }
