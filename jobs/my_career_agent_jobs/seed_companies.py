@@ -15,6 +15,7 @@ Find the board token from a company's careers page:
   teamtailor       <company>.teamtailor.com       personio   <company>.jobs.personio.de
   bamboohr         <company>.bamboohr.com          rippling   ats.rippling.com/<board>
   breezy           <company>.breezy.hr
+  avature          https://<host>/<portal>, e.g. https://apply.deloitte.com/careers (its RSS feed)
   sitemap          <sitemap url>|<job url pattern>, e.g. https://jobs.citi.com/sitemap.xml|/job/
 
 Several CSVs may be given; later files win for the same board (list the curated file last).
@@ -33,7 +34,7 @@ from pathlib import Path
 
 from .names import normalize_company_name
 
-VENDORS = {"greenhouse", "lever", "ashby", "smartrecruiters", "workable", "workday", "recruitee", "amazon", "eightfold", "oracle", "teamtailor", "personio", "bamboohr", "rippling", "breezy", "sitemap", "other"}
+VENDORS = {"greenhouse", "lever", "ashby", "smartrecruiters", "workable", "workday", "recruitee", "amazon", "eightfold", "oracle", "teamtailor", "personio", "bamboohr", "rippling", "breezy", "sitemap", "avature", "other"}
 
 
 def read_companies(path: Path) -> list[dict[str, object]]:

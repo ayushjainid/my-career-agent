@@ -353,3 +353,43 @@ export async function fetchBreezy(board: string, opts: FetchOpts & { gapMs?: num
   }
   return { jobs, touch, complete: true, name };
 }
+
+// ------------------------------------------------------------------ Avature (RSS feed)
+
+/** Avature careers portals (Deloitte, Bloomberg, ...): an RSS feed of the search, paged by jobOffset. */
+export async function fetchAvature(board: string, opts: FetchOpts & { gapMs?: number } = {}): Promise<BoardResult> {
+  const f = opts.fetcher ?? fetch;
+  const base = board.replace(/\/+$/, "");
+  if (!/^https:\/\/[^/]+\/.+/.test(base)) throw new Error(`avature board "${board}" should look like https://host/careers`);
+  const gap = opts.gapMs ?? paceMs(500);
+  const items: Array<{ id: string; title: string; link: string; desc: string | null; date: string | null }> = [];
+  let complete = false;
+  for (let page = 0, offset = 0; page < (opts.maxPages ?? 60); page++) {
+    let xml: string;
+    try { xml = await getText(`${base}/SearchJobs/feed/?jobRecordsPerPage=100&jobOffset=${offset}`, f, "application/rss+xml,application/xml"); }
+    catch (e) { if (e instanceof SlowDownError || items.length) break; throw e; }
+    const got = [...xml.matchAll(/<item>([\s\S]*?)<\/item>/g)].map((m) => m[1]!);
+    for (const it of got) {
+      const link = xmlText(it, "link") ?? xmlText(it, "guid");
+      const title = xmlText(it, "title");
+      if (!link || !title) continue;
+      const id = new URL(link).pathname;
+      if (!items.some((x) => x.id === id)) items.push({ id, title, link, desc: xmlText(it, "description"), date: xmlText(it, "pubDate") });
+    }
+    await sleep(gap);
+    if (!got.length) { complete = items.length > 0; break; }
+    offset += got.length;
+  }
+  const known = opts.known ?? new Set<string>();
+  const touch: string[] = [], todo: typeof items = [];
+  for (const it of items) { if (known.has(it.id)) touch.push(it.id); else if (TECH_TITLE.test(it.title) && !ELSEWHERE.test(it.title.toLowerCase())) todo.push(it); }
+  const jobs: NormalizedJob[] = [];
+  for (const it of todo.slice(0, opts.maxDetails ?? 200)) {
+    let jp: Obj | null = null;
+    try { const html = await getText(it.link, f); jp = jobPostingsIn(html)[0] ?? microdataPosting(html); } catch (e) { if (e instanceof SlowDownError) break; }
+    await sleep(gap);
+    const n = fromJobPosting(jp ?? { "@type": "JobPosting", title: it.title, description: it.desc, datePosted: it.date }, "avature", it.id, it.link);
+    if (n) jobs.push(n.job);
+  }
+  return { jobs, touch, complete, listed: items.length, sample: todo.slice(0, 3).map((t) => t.link) };
+}
