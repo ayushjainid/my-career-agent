@@ -146,7 +146,20 @@ const NON_TECH = String.raw`\y(HOSPITALS?|HEALTH|HEALTHCARE|HSE|NHS|NURSING|NURS
  */
 const ENTITY_WORDS = String.raw`(IRELAND|CANADA|UK|US|USA|AMERICA|AMERICAS|NORTH AMERICA|EUROPE|EMEA|INTERNATIONAL|GLOBAL|TECHNOLOGY|TECHNOLOGIES|TECH|SERVICES|SERVICE|SOLUTIONS|OPERATIONS|COMPANY|HOLDINGS|GROUP|LABS|RESEARCH|DEVELOPMENT|SOFTWARE|SYSTEMS|DIGITAL|CLOUD|PAYMENTS|FINANCIAL|ENTERPRISE|INNOVATION|CENTRE|CENTER|DATA|ITALIA|ITALY|BRITAIN|ENGLAND|LONDON|DUBLIN|TORONTO|VANCOUVER|MONTREAL|AND|OF|THE|N A|NA|SE|SRL|SPA|ULC|PLC|LP|LLP|UNLIMITED)`;
 async function linkSponsors(sql: ReturnType<typeof appDb>) {
-  // Exact: name or alias (a hash join on the expanded names).
+  // Records still pointing at a company that is no longer read (no board, or SmartRecruiters) are
+  // freed first, so they can link to the company that is read now.
+  const freed = (await sql`
+    UPDATE mca.sponsor_record SET company_id = NULL
+    WHERE company_id IN (SELECT id FROM mca.company WHERE ats_board IS NULL OR ats_vendor = 'smartrecruiters')
+    RETURNING id`) as unknown[];
+  if (freed.length) console.log(`Freed ${freed.length} sponsor records from companies that are no longer read.`);
+  // Exact: name or alias (a hash join on the expanded names); curated companies before discovered ones.
+  await sql`
+    WITH names AS (SELECT id, name_norm AS n, source FROM mca.company WHERE ats_board IS NOT NULL
+                   UNION SELECT id, unnest(aliases), source FROM mca.company WHERE ats_board IS NOT NULL),
+         best AS (SELECT DISTINCT ON (n) n, id FROM names ORDER BY n, (source = 'discovered'))
+    UPDATE mca.sponsor_record s SET company_id = best.id FROM best
+    WHERE s.company_id IS NULL AND s.employer_norm = best.n`;
   const exact = (await sql`
     WITH names AS (SELECT id, name_norm AS n FROM mca.company UNION SELECT id, unnest(aliases) FROM mca.company)
     UPDATE mca.sponsor_record s SET company_id = names.id FROM names
