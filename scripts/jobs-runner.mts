@@ -126,13 +126,19 @@ async function catalog() {
  * name or alias has a working board with open jobs. Reports volume-weighted coverage (share of
  * filings), top-N coverage and plain head-count coverage, plus the biggest uncovered employers.
  */
+const NON_TECH = String.raw`\y(HOSPITALS?|HEALTH|HEALTHCARE|HSE|NHS|NURSING|NURSES?|CARE|CARERS|CLINICS?|MEDICAL|PHARMACY|PHARMACIES|DENTAL|DENTISTS?|SURGERY|DOCTORS?|VETERINARY|MEATS?|FOODS?|FARMS?|FARMING|RESTAURANTS?|HOTELS?|CATERING|TAKEAWAY|BAKERY|DAIRY|POULTRY|MUSHROOMS?|FISH|FISHERIES|BUTCHERS?|CONSTRUCTION|BUILDERS|SCHOOLS?|NURSERY|CLEANING|HOSPITALITY|INNS?|PUBS?|CAFE|KEBAB|PIZZA|CURRY|SUPERMARKET|CHURCH|HOMECARE|CHEMIST)\y`;
+
 async function coverage() {
   const sql = appDb(env.INGEST_DATABASE_URL);
   const rows = (await sql`
     WITH emp AS (
       SELECT country, employer_norm, max(employer_name) AS name, sum(filings)::bigint AS filings
       FROM mca.sponsor_record
-      WHERE (country = 'US' AND source = 'dol_lca' AND occupation_code LIKE '15-%') OR country <> 'US'
+      WHERE (country = 'US' AND source = 'dol_lca' AND occupation_code LIKE '15-%')
+         OR (country = 'CA' AND occupation_code LIKE '212%')
+         -- Ireland and the UK publish no occupation per employer: leave out names that are plainly not tech hirers.
+         OR (country IN ('IE', 'GB') AND employer_norm !~ ${NON_TECH})
+         OR country NOT IN ('US', 'CA', 'IE', 'GB')
       GROUP BY 1, 2),
     live AS (
       SELECT c.name_norm, c.aliases FROM mca.company c

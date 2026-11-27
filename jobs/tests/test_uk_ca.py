@@ -34,7 +34,8 @@ def test_ca_lmia_sums_positions_under_a_title_row_and_bilingual_header(tmp_path:
         encoding="utf-8",
     )
     rows = summarise_ca(f)
-    assert [(r["employer_norm"], r["filings"]) for r in rows] == [("GLOBEX", 5)]
+    # One row per employer and occupation code, so tech roles (NOC 212xx) can be counted on their own.
+    assert sorted((r["employer_norm"], r["occupation_code"], r["filings"]) for r in rows) == [("GLOBEX", "21211", 2), ("GLOBEX", "21231", 3)]
 
 
 def test_wrong_file_fails_loudly(tmp_path: Path):

@@ -93,7 +93,13 @@ def summarise_uk(path: Path) -> list[dict[str, object]]:
     ]
 
 
+def _noc(text: str) -> str | None:
+    m = re.match(r"\s*(\d{4,5})", text or "")
+    return m.group(1) if m else None
+
+
 def summarise_ca(path: Path) -> list[dict[str, object]]:
+    """Approved positions per employer and occupation (NOC code, when the file gives one)."""
     rows = _read_rows(path)
     h, col = _header(rows, [["employer"], ["approved positions", "approved positions/postes approuvés", "postes approuvés"]], "CA LMIA list")
     occ = None
@@ -101,7 +107,7 @@ def summarise_ca(path: Path) -> list[dict[str, object]]:
     for j, n in enumerate(names):
         if n.startswith("occupation"):
             occ = j
-    totals: dict[str, dict[str, object]] = defaultdict(lambda: {"positions": 0, "name": "", "occupations": set()})
+    totals: dict[tuple[str, str], dict[str, object]] = defaultdict(lambda: {"positions": 0, "name": "", "occupation": ""})
     for r in rows[h + 1:]:
         name = (r[col["employer"]] if len(r) > col["employer"] else "").strip()
         norm = normalize_company_name(name)
@@ -111,16 +117,17 @@ def summarise_ca(path: Path) -> list[dict[str, object]]:
             positions = int(float(re.sub(r"[^0-9.]", "", r[col["approved positions"]]) or 0))
         except (ValueError, IndexError):
             positions = 0
-        t = totals[norm]
+        occ_text = r[occ].strip() if occ is not None and len(r) > occ else ""
+        code = _noc(occ_text) or ""
+        t = totals[(norm, code)]
         t["name"] = t["name"] or name
         t["positions"] = int(t["positions"]) + positions
-        if occ is not None and len(r) > occ and r[occ].strip():
-            t["occupations"].add(r[occ].strip()[:80])
+        t["occupation"] = t["occupation"] or occ_text[:80]
     return [
         {"country": "CA", "source": "esdc_lmia", "employer_name": t["name"], "employer_norm": norm, "employer_fein": None,
-         "occupation_code": None, "period_start": None, "period_end": None, "filings": t["positions"], "certified": t["positions"],
-         "denied": 0, "withdrawn": 0, "wage_levels": None, "extra": json.dumps({"occupations": sorted(t["occupations"])[:10]})}
-        for norm, t in totals.items() if int(t["positions"]) > 0
+         "occupation_code": code or None, "period_start": None, "period_end": None, "filings": t["positions"], "certified": t["positions"],
+         "denied": 0, "withdrawn": 0, "wage_levels": None, "extra": json.dumps({"occupation": t["occupation"]})}
+        for (norm, code), t in totals.items() if int(t["positions"]) > 0
     ]
 
 
@@ -205,13 +212,13 @@ def load(rows: list[dict[str, object]], source_file: str, database_url: str) -> 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--uk", type=Path)
-    p.add_argument("--ca", type=Path)
+    p.add_argument("--ca", type=Path, action="append", default=[], help="repeat for several quarters")
     p.add_argument("--ie", type=Path, action="append", default=[], help="repeat for several years")
     p.add_argument("--database-url", default=os.environ.get("INGEST_DATABASE_URL"))
     args = p.parse_args(argv)
     if not args.uk and not args.ca and not args.ie:
         p.error("give --uk, --ca and/or --ie")
-    for path, fn in ((args.uk, summarise_uk), (args.ca, summarise_ca), *((p_, summarise_ie) for p_ in args.ie)):
+    for path, fn in ((args.uk, summarise_uk), *((p_, summarise_ca) for p_ in args.ca), *((p_, summarise_ie) for p_ in args.ie)):
         if not path:
             continue
         rows = fn(path)

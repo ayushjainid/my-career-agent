@@ -45,8 +45,17 @@ jobs:
           set -euo pipefail
           mkdir -p data
           args=()
+          # Without a URL given, find the current files from GOV.UK and open.canada.ca.
+          eval "$(python -m my_career_agent_jobs.sponsor_urls)"
+          UK_URL="${UK_URL:-$UK_FOUND}"
+          CA_URLS="${CA_URL:-$CA_FOUND}"
+          echo "UK: ${UK_URL:-none}"; echo "CA: ${CA_URLS:-none}"
           if [ -n "${UK_URL}" ]; then curl -fL --retry 3 -o data/uk_register.csv "${UK_URL}"; args+=(--uk data/uk_register.csv); fi
-          if [ -n "${CA_URL}" ]; then curl -fL --retry 3 -o data/ca_lmia.csv "${CA_URL}"; args+=(--ca data/ca_lmia.csv); fi
+          i=0
+          for u in ${CA_URLS}; do
+            i=$((i + 1)); ext="${u##*.}"; ext="${ext%%\?*}"; [ "$ext" = "xlsx" ] || ext=csv
+            if curl -fL --retry 3 -o "data/ca_lmia_${i}.${ext}" "$u"; then args+=(--ca "data/ca_lmia_${i}.${ext}"); else echo "::warning::Canada file not downloaded: $u"; fi
+          done
           # Ireland: this year's and last year's DETE files (the file name carries the year).
           y=$(date -u +%Y)
           for yr in "$y" "$((y - 1))"; do
