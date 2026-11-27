@@ -1,5 +1,5 @@
 name,ats_vendor,ats_board,domain,ats_region,aliases
-Stripe,greenhouse,stripe,stripe.com,,Stripe Inc;Stripe Payments Europe Limited;Stripe Technology Europe Limited
+Stripe,greenhouse,stripe,stripe.com,,Stripe Inc;Stripe Payments Europe Limited;Stripe Technology Europe Limited;Stripe Technology Company Limited
 Databricks,greenhouse,databricks,databricks.com,,Databricks Inc
 Datadog,greenhouse,datadog,datadoghq.com,,Datadog Inc;Datadog Ireland Limited
 Intercom,greenhouse,intercom,intercom.com,,Intercom Inc;Intercom R&D Unlimited Company
@@ -35,7 +35,6 @@ BlackRock,workday,blackrock.wd1.myworkdayjobs.com/BlackRock_Professional,,,"Blac
 Red Hat,workday,redhat.wd5.myworkdayjobs.com/jobs,,,"Red Hat, LLC;Red Hat Limited"
 Nike,workday,nike.wd1.myworkdayjobs.com/nke,,,"NIKE, Inc.;NIKE USA Inc.;NIKE RETAIL SERVICES INC"
 Analog Devices,workday,analogdevices.wd1.myworkdayjobs.com/External,,,"Analog Devices, Inc.;Analog Devices International Unlimited Company"
-CVS Health,workday,cvshealth.wd1.myworkdayjobs.com/CVS_Health_Careers,,,"CVS Pharmacy, Inc.;CVS Shared Services Resources LLC;CVS Rx Services Inc."
 Motorola Solutions,workday,motorolasolutions.wd5.myworkdayjobs.com/Careers,,,"Motorola Solutions, Inc.;Motorola Solutions Ireland Ltd."
 Bristol Myers Squibb,workday,bristolmyerssquibb.wd5.myworkdayjobs.com/BMS,,,Bristol-Myers Squibb Company
 Target,workday,target.wd5.myworkdayjobs.com/targetcareers,,,"Target Enterprise, Inc.;Target Corporation"
@@ -63,3 +62,7 @@ Capital One,sitemap,https://www.capitalonecareers.com/sitemap.xml|/job/,capitalo
 Adobe,sitemap,https://careers.adobe.com/sitemap.xml|/job,adobe.com,,Adobe Inc.;Adobe Systems Software Ireland Limited
 Mastercard,sitemap,https://careers.mastercard.com/sitemap.xml|/job,mastercard.com,,MasterCard International Incorporated;Mastercard Technologies LLC;MasterCard Ireland Limited
 Bank of America,sitemap,https://careers.bankofamerica.com/sitemap.xml|/job,bankofamerica.com,,"Bank of America N.A.;Bank of America, N.A.;BofA Securities, Inc."
+DoorDash,greenhouse,doordashusa,doordash.com,,"DoorDash, Inc.;DoorDash Technologies Canada Inc."
+Ford,oracle,efds.fa.em5.oraclecloud.com|CX_1,ford.com,,"FORD MOTOR COMPANY;Ford Motor Company of Canada, Limited"
+CVS Health,sitemap,https://jobs.cvshealth.com/sitemap.xml|/job/,cvshealth.com,,"CVS Pharmacy, Inc.;CVS Shared Services Resources LLC;CVS Rx Services Inc."
+Qualtrics,greenhouse,qualtrics,qualtrics.com,,"Qualtrics, LLC;QT Technologies Ireland Limited"
