@@ -1,0 +1,23 @@
+name: Export sponsor summary
+# Read-only: prints a compact summary of the public government sponsor lists (employer name and
+# filing count per country) to the log, for the career-agent framework's data/sponsors file.
+on: workflow_dispatch
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - run: sudo apt-get install -y -qq postgresql-client >/dev/null
+      - env:
+          DATABASE_OWNER_URL: ${{ secrets.DATABASE_OWNER_URL }}
+        run: |
+          URL="$(printf %s "$DATABASE_OWNER_URL" | tr -d '[:space:]')"
+          psql "$URL" -X -A -t -F $'\t' -c "SET default_transaction_read_only = on;
+            SELECT 'SPN', country, employer_norm, max(employer_name), sum(filings)::int FROM mca.sponsor_record
+            WHERE (country = 'US' AND source = 'dol_lca' AND occupation_code LIKE '15-%')
+               OR (country = 'CA' AND occupation_code LIKE '212%')
+               OR country = 'IE'
+               OR (country = 'GB' AND extra->>'route' ~* 'scale-?up|global business mobility')
+            GROUP BY country, employer_norm ORDER BY country, sum(filings) DESC;" | grep '^SPN' | gzip -9 | base64 -w 0 > s.b64
+          echo "SIZE $(wc -c < s.b64)"
+          fold -w 4000 s.b64 | sed 's/^/B64 /'
