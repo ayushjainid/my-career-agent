@@ -1,0 +1,21 @@
+name: Database check
+# Read-only: can the database answer queries, and what takes the space. Prints table sizes and row
+# counts only, no row contents.
+on: workflow_dispatch
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - run: sudo apt-get install -y -qq postgresql-client >/dev/null
+      - name: Read-only queries
+        env:
+          DATABASE_OWNER_URL: ${{ secrets.DATABASE_OWNER_URL }}
+        run: |
+          URL="$(printf %s "$DATABASE_OWNER_URL" | tr -d '[:space:]')"
+          psql "$URL" -v ON_ERROR_STOP=1 -X -c "SET default_transaction_read_only = on; SELECT now(), pg_size_pretty(pg_database_size(current_database())) AS db_size;"
+          psql "$URL" -X -c "SELECT n.nspname || '.' || c.relname AS table, pg_size_pretty(pg_total_relation_size(c.oid)) AS total, c.reltuples::bigint AS approx_rows
+                               FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+                              WHERE c.relkind = 'r' AND n.nspname NOT IN ('pg_catalog','information_schema')
+                              ORDER BY pg_total_relation_size(c.oid) DESC LIMIT 25;"
+          psql "$URL" -X -c "SELECT count(*) AS users FROM mca.app_user;"
